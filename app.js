@@ -1,16 +1,16 @@
-// Importar los SDKs necesarios de Firebase (versión modular para web)
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+// Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
 
-// Credenciales oficiales de tu proyecto en Firebase
+// Credenciales oficiales de tu nuevo proyecto en Firebase
 const firebaseConfig = {
-    apiKey: "AIzaSyAtCQdJYSRLw5Ne0WLcJvq71eRFZACFLG4",
-    authDomain: "applacteos-feeed.firebaseapp.com",
-    projectId: "applacteos-feeed",
-    storageBucket: "applacteos-feeed.appfirebasestorage.app",
-    messagingSenderId: "58449956261",
-    appId: "1:58449956261:web:da27090ac6ec7545d5ec4c",
-    measurementId: "G-V2GSXDQ0SB"
+    apiKey: "AIzaSyAXWC6FgkeLlOtzH4_gPTwkRQzKrbAPCkE",
+    authDomain: "lacteosvictoria-2b574.firebaseapp.com",
+    projectId: "lacteosvictoria-2b574",
+    storageBucket: "lacteosvictoria-2b574.appfirebasestorage.app",
+    messagingSenderId: "1010099938727",
+    appId: "1:1010099938727:web:4ad61b1e0ae7cb98768282",
+    measurementId: "G-NB2W7V2TGB"
 };
 
 // Inicializar Firebase y la Base de Datos en Tiempo Real
@@ -127,7 +127,6 @@ function switchAuthTab(mode) {
         if (strengthContainer) strengthContainer.classList.remove('hidden');
         if (authBtn) authBtn.querySelector('span').innerText = "Crear Cuenta";
         
-        // Evaluar visibilidad del campo de empresa según el rol seleccionado
         checkRoleVisibility();
         checkPasswordStrength('');
     } else {
@@ -141,7 +140,6 @@ function switchAuthTab(mode) {
     }
 }
 
-// FUNCIÓN PARA MOSTRAR U OCULTAR EL NOMBRE DE LA EMPRESA SEGÚN EL ROL
 function checkRoleVisibility() {
     const roleInput = document.getElementById('user-role-input');
     const companyField = document.getElementById('company-name-field');
@@ -149,9 +147,9 @@ function checkRoleVisibility() {
     if (!roleInput || !companyField) return;
 
     if (roleInput.value === 'admin') {
-        companyField.classList.remove('hidden'); // Solo al Dueño se le pide el nombre de la empresa
+        companyField.classList.remove('hidden');
     } else {
-        companyField.classList.add('hidden');    // Al Conductor se le oculta
+        companyField.classList.add('hidden');
     }
 }
 
@@ -195,7 +193,6 @@ function handleAuthSubmit(e) {
     if (state.authMode === 'register') {
         const companyInput = document.getElementById('company-name-input').value.trim();
         
-        // Si es administrador y escribió un nombre de empresa, actualizarlo
         if (roleInput === 'admin' && companyInput) {
             state.companyName = companyInput;
         }
@@ -1009,7 +1006,7 @@ function switchModule(modName) {
     }
 }
 
-// EXPORTAR FUNCIONES AL ÁMBITO GLOBAL PARA LOS EVENTOS EN LOS BOTONES HTML
+// EXPORTAR FUNCIONES AL ÁMBITO GLOBAL
 window.switchAuthTab = switchAuthTab;
 window.handleAuthSubmit = handleAuthSubmit;
 window.checkRoleVisibility = checkRoleVisibility;
