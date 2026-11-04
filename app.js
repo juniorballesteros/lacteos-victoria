@@ -712,7 +712,6 @@ function renderProductsPOS() {
 
     state.products.forEach(p => {
         let isAvailable = p.saleType === 'kilos' ? p.kilos > 0 : p.stockUnits > 0;
-        // CORREGIDO: Muestra bloques y kilos en el catálogo del POS
         let stockBadge = p.saleType === 'kilos' ? `Stock: ${p.blocks || 0} blq (${p.kilos} kg)` : `Stock: ${p.stockUnits} und`;
         let priceText = p.saleType === 'kilos' ? `$${p.pricePerKg.toLocaleString('es-CO')} / kg` : `$${p.pricePerUnit.toLocaleString('es-CO')} / und`;
 
@@ -877,8 +876,16 @@ function renderSalesHistory() {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ventas.</td></tr>';
     } else {
         state.salesHistory.forEach(sale => {
-            // CORREGIDO: Muestra kilos y bloques en la descripción del historial
-            const itemsDesc = sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg (${i.blocksEquivalent || 0} blq) ${i.name}` : `${i.units}und ${i.name}`).join(', ');
+            // CORREGIDO: Muestra claramente los kilos y los bloques en el historial
+            const itemsDesc = sale.items.map(i => {
+                if (i.saleType === 'kilos') {
+                    const bloques = i.blocksEquivalent !== undefined ? i.blocksEquivalent : 0;
+                    return `${i.kilos} kg (${bloques} bloques) de ${i.name}`;
+                } else {
+                    return `${i.units} und de ${i.name}`;
+                }
+            }).join(', ');
+
             tbody.innerHTML += `
                 <tr class="border-b border-emerald-50">
                     <td class="py-3 px-4 font-mono text-xs text-slate-500">${sale.date}</td>
