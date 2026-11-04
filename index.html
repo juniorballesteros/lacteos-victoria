@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Gestión Láctea</title>
+    <title>Lácteos Victoria - Sistema de Gestión</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Iconos Lucide -->
@@ -12,7 +12,7 @@
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col font-sans">
 
-    <!-- LOGIN / REGISTRO -->
+    <!-- PANTALLA DE AUTENTICACIÓN -->
     <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-950">
         <div class="bg-white/95 backdrop-blur-md rounded-3xl p-8 max-w-md w-full shadow-2xl border border-emerald-100">
             <div class="text-center mb-8">
@@ -33,7 +33,7 @@
             </div>
 
             <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
-                <!-- Selector de rol (Oculto en Login, se muestra automáticamente al Registrarse) -->
+                <!-- Selector de rol (Oculto en Login, automático; visible solo al Registrarse) -->
                 <div id="role-selection-field" class="hidden space-y-1">
                     <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Tipo de Usuario / Rol a Registrar</label>
                     <div class="relative">
@@ -704,6 +704,7 @@
         </div>
     </div>
 
+    <!-- Script Principal -->
     <script type="module" src="./app.js"></script>
 </body>
 </html>

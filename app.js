@@ -108,7 +108,7 @@ function updateDateDisplay() {
     if (dateEl) dateEl.innerText = now.toLocaleDateString('es-CO');
 }
 
-// CONTROL DE LOGIN / REGISTRO (Oculta rol en login, lo muestra en registro)
+// CONTROL DE LOGIN / REGISTRO
 function switchAuthTab(mode) {
     state.authMode = mode;
     const tabLogin = document.getElementById('tab-login');
@@ -170,7 +170,6 @@ function checkPasswordStrength(password) {
     }
 }
 
-// MANEJO DE AUTENTICACIÓN CON DETECCIÓN AUTOMÁTICA DE ROL
 function handleAuthSubmit(e) {
     e.preventDefault();
     const email = document.getElementById('email-input').value.trim();
@@ -202,10 +201,8 @@ function handleAuthSubmit(e) {
         return;
     }
 
-    // INICIO DE SESIÓN: Detecta el rol automáticamente desde la base de datos
     let foundUser = state.registeredUsers.find(u => u.email === email && u.password === password);
     
-    // Si no hay usuarios registrados y es la primera vez, crea uno admin por defecto
     if (!foundUser && state.registeredUsers.length === 0) {
         foundUser = { email, password, role: 'admin' };
         state.registeredUsers.push(foundUser);
@@ -217,7 +214,6 @@ function handleAuthSubmit(e) {
         return;
     }
 
-    // Asignación automática del rol guardado
     state.currentUserRole = foundUser.role;
     state.currentUserEmail = foundUser.email;
 
@@ -613,8 +609,8 @@ function addDailyProduction(e) {
         if (kilos <= 0) return alert('Ingresa los kilos.');
 
         if (product) {
-            product.blocks += blocks;
-            product.kilos += kilos;
+            product.blocks = (product.blocks || 0) + blocks;
+            product.kilos = (product.kilos || 0) + kilos;
             product.pricePerKg = price;
         } else {
             product = { id: Date.now(), name: productName, saleType: 'kilos', blocks, kilos, pricePerKg: price, stockUnits: 0, pricePerUnit: 0 };
@@ -626,7 +622,7 @@ function addDailyProduction(e) {
         if (stockUnits <= 0) return alert('Ingresa unidades.');
 
         if (product) {
-            product.stockUnits += stockUnits;
+            product.stockUnits = (product.stockUnits || 0) + stockUnits;
             product.pricePerUnit = price;
         } else {
             product = { id: Date.now(), name: productName, saleType: 'unidad', blocks: 0, kilos: 0, pricePerKg: 0, stockUnits, pricePerUnit: price };
@@ -656,7 +652,7 @@ function renderInventoryTable() {
     }
 
     state.products.forEach(p => {
-        let stockText = p.saleType === 'kilos' ? `${p.blocks} blq (${p.kilos} kg)` : `${p.stockUnits} unidades`;
+        let stockText = p.saleType === 'kilos' ? `${p.blocks || 0} blq (${p.kilos} kg)` : `${p.stockUnits} unidades`;
         let priceText = p.saleType === 'kilos' ? `$${p.pricePerKg.toLocaleString('es-CO')} / kg` : `$${p.pricePerUnit.toLocaleString('es-CO')} / und`;
 
         tbody.innerHTML += `
@@ -716,7 +712,8 @@ function renderProductsPOS() {
 
     state.products.forEach(p => {
         let isAvailable = p.saleType === 'kilos' ? p.kilos > 0 : p.stockUnits > 0;
-        let stockBadge = p.saleType === 'kilos' ? `Stock: ${p.kilos} kg` : `Stock: ${p.stockUnits} und`;
+        // CORREGIDO: Muestra bloques y kilos en el catálogo del POS
+        let stockBadge = p.saleType === 'kilos' ? `Stock: ${p.blocks || 0} blq (${p.kilos} kg)` : `Stock: ${p.stockUnits} und`;
         let priceText = p.saleType === 'kilos' ? `$${p.pricePerKg.toLocaleString('es-CO')} / kg` : `$${p.pricePerUnit.toLocaleString('es-CO')} / und`;
 
         grid.innerHTML += `
@@ -744,7 +741,7 @@ function promptSellProduct(productId) {
         const kilosToSell = parseFloat(inputKilos);
         if (isNaN(kilosToSell) || kilosToSell <= 0 || kilosToSell > product.kilos) return alert('Cantidad inválida.');
 
-        const inputBlocks = prompt(`¿Cuántos bloques físicos equivalentes se entregan?:`, "1");
+        const inputBlocks = prompt(`¿Cuántos bloques físicos equivalentes se entregan? (Stock: ${product.blocks || 0} blq):`, "1");
         const blocksToSell = inputBlocks !== null ? parseFloat(inputBlocks) || 0 : 0;
 
         state.cart.push({ id: product.id, name: product.name, saleType: 'kilos', price: product.pricePerKg, kilos: kilosToSell, blocksEquivalent: blocksToSell, units: 0 });
@@ -775,7 +772,8 @@ function renderCart() {
     state.cart.forEach(item => {
         let itemTotal = item.saleType === 'kilos' ? (item.price * item.kilos) : (item.price * item.units);
         total += itemTotal;
-        cartContainer.innerHTML += `<div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white"><div><p class="font-bold">${item.name}</p><p class="text-emerald-300">${item.saleType === 'kilos' ? item.kilos + 'kg' : item.units + 'und'}</p></div><span class="font-bold font-mono">$${itemTotal.toLocaleString('es-CO')}</span></div>`;
+        let desc = item.saleType === 'kilos' ? `${item.kilos}kg (${item.blocksEquivalent || 0} blq)` : `${item.units} und`;
+        cartContainer.innerHTML += `<div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white"><div><p class="font-bold">${item.name}</p><p class="text-emerald-300">${desc}</p></div><span class="font-bold font-mono">$${itemTotal.toLocaleString('es-CO')}</span></div>`;
     });
 
     document.getElementById('cart-total').innerText = `$${total.toLocaleString('es-CO')}`;
@@ -806,7 +804,7 @@ function processSaleAndPrint() {
         if (product) {
             if (product.saleType === 'kilos') {
                 product.kilos = Math.max(0, parseFloat((product.kilos - item.kilos).toFixed(2)));
-                product.blocks = Math.max(0, parseFloat((product.blocks - item.blocksEquivalent).toFixed(2)));
+                product.blocks = Math.max(0, parseFloat(((product.blocks || 0) - item.blocksEquivalent).toFixed(2)));
             } else {
                 product.stockUnits = Math.max(0, product.stockUnits - item.units);
             }
@@ -833,7 +831,8 @@ function processSaleAndPrint() {
     const tbody = document.getElementById('receipt-items-body');
     tbody.innerHTML = '';
     state.cart.forEach(item => {
-        tbody.innerHTML += `<tr><td>${item.name}</td><td class="text-right font-bold">$${(item.saleType === 'kilos' ? item.price * item.kilos : item.price * item.units).toLocaleString('es-CO')}</td></tr>`;
+        let desc = item.saleType === 'kilos' ? `${item.kilos}kg / ${item.blocksEquivalent || 0}blq` : `${item.units} und`;
+        tbody.innerHTML += `<tr><td>${item.name} (${desc})</td><td class="text-right font-bold">$${(item.saleType === 'kilos' ? item.price * item.kilos : item.price * item.units).toLocaleString('es-CO')}</td></tr>`;
     });
 
     document.getElementById('receipt-total').innerText = `$${total.toLocaleString('es-CO')}`;
@@ -878,7 +877,8 @@ function renderSalesHistory() {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ventas.</td></tr>';
     } else {
         state.salesHistory.forEach(sale => {
-            const itemsDesc = sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units}und ${i.name}`).join(', ');
+            // CORREGIDO: Muestra kilos y bloques en la descripción del historial
+            const itemsDesc = sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg (${i.blocksEquivalent || 0} blq) ${i.name}` : `${i.units}und ${i.name}`).join(', ');
             tbody.innerHTML += `
                 <tr class="border-b border-emerald-50">
                     <td class="py-3 px-4 font-mono text-xs text-slate-500">${sale.date}</td>
