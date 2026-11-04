@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión Láctea</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 flex flex-col font-sans">
+
+    <!-- LOGIN / REGISTRO -->
+    <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-950">
+        <div class="bg-white/95 backdrop-blur-md rounded-3xl p-8 max-w-md w-full shadow-2xl border border-emerald-100">
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-20 h-20 bg-emerald-100 text-emerald-700 rounded-full mb-4 shadow-inner">
+                    <i data-lucide="milk" class="w-10 h-10"></i>
+                </div>
+                <h1 class="text-3xl font-extrabold text-emerald-950 tracking-tight" id="display-company-title">Lácteos Victoria</h1>
+                <p class="text-emerald-700 text-sm font-medium mt-1">Gestión Inteligente de Producción y Rutas</p>
+            </div>
+
+            <div class="flex rounded-xl bg-emerald-50 p-1 mb-6 border border-emerald-200">
+                <button id="tab-login" onclick="switchAuthTab('login')" class="flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm">
+                    Iniciar Sesión
+                </button>
+                <button id="tab-register" onclick="switchAuthTab('register')" class="flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900">
+                    Registrarse
+                </button>
+            </div>
+
+            <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+                <div id="role-selection-field" class="hidden space-y-1">
+                    <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Tipo de Usuario / Rol</label>
+                    <div class="relative">
+                        <i data-lucide="user-cog" class="w-5 h-5 absolute left-3 top-3 text-emerald-600"></i>
+                        <select id="user-role-input" onchange="checkRoleVisibility()" class="w-full pl-10 pr-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-bold text-emerald-950">
+                            <option value="admin">Dueño / Administrador (Acceso Total)</option>
+                            <option value="conductor">Conductor / Recolector de Ruta (Solo Acopio)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="company-name-field" class="hidden">
+                    <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Nombre de tu Empresa / Quesera</label>
+                    <div class="relative">
+                        <i data-lucide="building-2" class="w-5 h-5 absolute left-3 top-3 text-emerald-600"></i>
+                        <input type="text" id="company-name-input" placeholder="Ej: Lácteos Victoria" class="w-full pl-10 pr-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-medium">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Correo Electrónico</label>
+                    <div class="relative">
+                        <i data-lucide="mail" class="w-5 h-5 absolute left-3 top-3 text-emerald-600"></i>
+                        <input type="email" id="email-input" required placeholder="admin@lacteos.com" class="w-full pl-10 pr-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-medium">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Contraseña</label>
+                    <div class="relative">
+                        <i data-lucide="lock" class="w-5 h-5 absolute left-3 top-3 text-emerald-600"></i>
+                        <input type="password" id="password-input" required placeholder="••••••••" oninput="checkPasswordStrength(this.value)" class="w-full pl-10 pr-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-medium">
+                    </div>
+                </div>
+
+                <div id="password-strength-container" class="hidden space-y-2 pt-1">
+                    <div class="flex justify-between text-xs font-bold">
+                        <span class="text-slate-500">Seguridad de clave:</span>
+                        <span id="strength-label" class="text-red-500 font-bold">Débil</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                        <div id="strength-bar" class="bg-red-500 h-full w-1/3 transition-all duration-300"></div>
+                    </div>
+                </div>
+
+                <button type="submit" id="auth-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 mt-4">
+                    <span>Ingresar al Sistema</span>
+                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- PANTALLA PRINCIPAL -->
+    <div id="main-app" class="hidden flex-1 flex flex-col">
+        <header class="bg-emerald-900 text-white shadow-md sticky top-0 z-40">
+            <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="p-2 bg-emerald-800 rounded-xl">
+                        <i data-lucide="milk" class="w-6 h-6 text-emerald-300"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-black text-xl leading-tight" id="app-company-name">Lácteos Victoria</h2>
+                        <p class="text-xs text-emerald-300 font-medium" id="header-role-badge">Panel Principal</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                    <button id="config-btn-top" onclick="openConfigModal()" class="p-2 rounded-xl hover:bg-emerald-800 text-emerald-200 hover:text-white transition-colors">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                    </button>
+                    <button onclick="logout()" class="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-sm font-semibold transition-all text-emerald-100">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                        <span>Salir</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- MENÚ DE MÓDULOS -->
+        <nav id="main-nav-modules" class="bg-white border-b border-emerald-100 shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 flex space-x-2 overflow-x-auto py-2">
+                <button onclick="switchModule('ventas')" id="mod-btn-ventas" class="mod-btn active border-b-2 border-emerald-600 text-emerald-800 font-bold px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap bg-emerald-50/50 rounded-t-lg">
+                    <i data-lucide="shopping-cart" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Módulo 2: POS Ventas</span>
+                </button>
+                <button onclick="switchModule('historial')" id="mod-btn-historial" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="receipt" class="w-4 h-4"></i>
+                    <span>Historial de Ventas / Caja</span>
+                </button>
+                <button onclick="switchModule('gastos')" id="mod-btn-gastos" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+                    <span>Gastos Diarios / Inversión</span>
+                </button>
+                <button onclick="switchModule('inventario')" id="mod-btn-inventario" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="package" class="w-4 h-4"></i>
+                    <span>Módulo 3: Producción y Stock</span>
+                </button>
+                <button onclick="switchModule('leche')" id="mod-btn-leche" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="droplet" class="w-4 h-4 text-sky-600"></i>
+                    <span>Módulo 4: Acopio de Leche</span>
+                </button>
+                <button onclick="switchModule('vehiculos')" id="mod-btn-vehiculos" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap opacity-60">
+                    <i data-lucide="truck" class="w-4 h-4"></i>
+                    <span>Módulo 5: Flota/Carros</span>
+                </button>
+                <button onclick="switchModule('contabilidad')" id="mod-btn-contabilidad" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="calculator" class="w-4 h-4"></i>
+                    <span>Módulo 6: Balance Mensual</span>
+                </button>
+            </div>
+        </nav>
+
+        <main class="max-w-7xl mx-auto w-full p-4 md:p-6 flex-1">
+            
+            <!-- VISTA MÓDULO 2: POS VENTAS -->
+            <div id="view-ventas" class="space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 space-y-6">
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                                    <i data-lucide="users" class="w-5 h-5 text-emerald-600"></i>
+                                    <span>1. Seleccionar Comprador</span>
+                                </h3>
+                                <button onclick="toggleNewClientForm()" class="text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center space-x-1">
+                                    <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+                                    <span>Nuevo Comprador</span>
+                                </button>
+                            </div>
+
+                            <div id="new-client-form" class="hidden mb-4 p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
+                                <h4 class="text-xs font-bold text-emerald-900 uppercase">Agregar Comprador</h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <input type="text" id="new-client-name" placeholder="Nombre completo / Local" class="bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
+                                    <input type="text" id="new-client-phone" placeholder="Teléfono / WhatsApp" class="bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
+                                </div>
+                                <div class="flex justify-end space-x-2">
+                                    <button onclick="toggleNewClientForm()" class="px-3 py-1.5 text-xs text-slate-600 font-bold">Cancelar</button>
+                                    <button onclick="saveClient()" class="px-4 py-1.5 text-xs bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700">Guardar</button>
+                                </div>
+                            </div>
+
+                            <select id="client-select" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                <option value="">-- Selecciona un comprador registrado --</option>
+                            </select>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100">
+                            <h3 class="font-bold text-emerald-950 mb-4 flex items-center space-x-2">
+                                <i data-lucide="layout-grid" class="w-5 h-5 text-emerald-600"></i>
+                                <span>2. Catálogo Disponible</span>
+                            </h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" id="product-grid"></div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-6">
+                        <div class="bg-emerald-950 text-white rounded-2xl p-5 shadow-xl border border-emerald-800 flex flex-col h-full justify-between">
+                            <div>
+                                <div class="flex items-center justify-between border-b border-emerald-800 pb-3 mb-4">
+                                    <h3 class="font-bold text-lg text-emerald-300 flex items-center space-x-2">
+                                        <i data-lucide="shopping-bag" class="w-5 h-5"></i>
+                                        <span>Resumen de Venta</span>
+                                    </h3>
+                                    <span class="text-xs bg-emerald-900 text-emerald-300 px-2 py-1 rounded-md font-mono" id="current-date"></span>
+                                </div>
+                                <div id="cart-items" class="space-y-3 max-h-56 overflow-y-auto pr-1">
+                                    <p class="text-emerald-400/60 text-center text-sm py-8">No has agregado productos.</p>
+                                </div>
+                            </div>
+
+                            <div class="border-t border-emerald-800 pt-4 mt-4 space-y-3">
+                                <div class="flex justify-between items-center text-lg font-bold">
+                                    <span class="text-emerald-300">TOTAL:</span>
+                                    <span class="text-2xl font-black text-white" id="cart-total">$0</span>
+                                </div>
+
+                                <div class="space-y-1">
+                                    <label class="block text-xs font-bold text-emerald-300 uppercase">Método de Pago</label>
+                                    <select id="payment-method" class="w-full bg-emerald-900 border border-emerald-700 rounded-xl p-2.5 text-white font-bold text-sm focus:ring-2 focus:ring-emerald-400 focus:outline-none">
+                                        <option value="Efectivo">Efectivo</option>
+                                        <option value="Nequi">Nequi (Transferencia)</option>
+                                    </select>
+                                </div>
+
+                                <div class="space-y-1">
+                                    <label class="block text-xs font-bold text-emerald-300 uppercase">Dinero Recibido ($)</label>
+                                    <input type="number" id="received-amount" oninput="calculateChange()" placeholder="0" class="w-full bg-emerald-900 border border-emerald-700 rounded-xl px-3 py-2 text-white font-mono font-bold text-lg focus:ring-2 focus:ring-emerald-400 focus:outline-none">
+                                </div>
+                                <div class="flex justify-between items-center text-sm font-semibold bg-emerald-900/60 p-2.5 rounded-xl">
+                                    <span class="text-emerald-300">Cambio:</span>
+                                    <span class="text-lg font-mono font-bold text-emerald-400" id="change-amount">$0</span>
+                                </div>
+                                <button onclick="processSaleAndPrint()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-black py-3 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 text-sm">
+                                    <i data-lucide="printer" class="w-5 h-5"></i>
+                                    <span>CONFIRMAR E IMPRIMIR TIRILLA</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA HISTORIAL DE VENTAS Y ARQUEO DE CAJA -->
+            <div id="view-historial" class="hidden space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Total Vendido Hoy</p>
+                            <h3 class="text-2xl font-black text-emerald-900 mt-1" id="stat-total-hoy">$0</h3>
+                        </div>
+                        <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
+                            <i data-lucide="trending-up" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Total por Nequi</p>
+                            <h3 class="text-2xl font-black text-sky-700 mt-1" id="stat-total-nequi">$0</h3>
+                        </div>
+                        <div class="p-3 bg-sky-100 text-sky-700 rounded-xl">
+                            <i data-lucide="smartphone" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Gastos / Pagos Leche Hoy</p>
+                            <h3 class="text-2xl font-black text-red-600 mt-1" id="stat-total-gastos">$0</h3>
+                        </div>
+                        <div class="p-3 bg-red-100 text-red-700 rounded-xl">
+                            <i data-lucide="dollar-sign" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-emerald-900 text-white rounded-2xl p-5 shadow-md flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-emerald-300 uppercase">Efectivo Real en Caja</p>
+                            <h3 class="text-2xl font-black text-white mt-1" id="stat-efectivo-caja">$0</h3>
+                        </div>
+                        <div class="p-3 bg-emerald-800 text-emerald-300 rounded-xl">
+                            <i data-lucide="banknote" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                    <div class="flex items-center justify-between border-b pb-3">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="receipt" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Registro Detallado de Ventas Realizadas</span>
+                        </h3>
+                        <button onclick="clearSalesHistory()" class="text-xs bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg transition-colors">
+                            Limpiar Historial
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
+                                    <th class="py-2.5 px-4 font-bold">Fecha / Hora</th>
+                                    <th class="py-2.5 px-4 font-bold">Comprador</th>
+                                    <th class="py-2.5 px-4 font-bold">Productos Vendidos</th>
+                                    <th class="py-2.5 px-4 font-bold">Método de Pago</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Total Venta</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sales-history-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA GASTOS DIARIOS / INVERSIÓN -->
+            <div id="view-gastos" class="hidden space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                        <div class="border-b pb-3">
+                            <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                                <i data-lucide="minus-circle" class="w-5 h-5 text-red-600"></i>
+                                <span>Registrar Gasto o Inversión</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-1">Registra lo que pagaste hoy en efectivo o materiales.</p>
+                        </div>
+                        <form id="expense-form" onsubmit="addExpense(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
+                                <input type="date" id="exp-date-entry" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto / Nombre del Gasto</label>
+                                <input type="text" id="exp-name-entry" required placeholder="Ej: Compra Cuajada, Transporte, etc." class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Valor Gastado ($)</label>
+                                <input type="number" id="exp-amount-entry" required placeholder="50000" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+                            <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
+                                Registrar Gasto (Resta de Caja)
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="dollar-sign" class="w-5 h-5 text-red-600"></i>
+                            <span>Historial de Gastos e Inversiones</span>
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead>
+                                    <tr class="bg-red-50 text-red-900 border-b border-red-100">
+                                        <th class="py-2.5 px-4 font-bold">Fecha</th>
+                                        <th class="py-2.5 px-4 font-bold">Concepto</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Valor</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="expenses-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA MÓDULO 3: PRODUCCIÓN Y CONTROL DE STOCK -->
+            <div id="view-inventario" class="hidden space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                        <div class="border-b pb-3">
+                            <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                                <i data-lucide="plus-circle" class="w-5 h-5 text-emerald-600"></i>
+                                <span>Registrar Producción / Producto</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-1">Elige si se vende por Kilos (Queso) o por Unidades (Mantequilla, Libras).</p>
+                        </div>
+                        <form id="production-form" onsubmit="addDailyProduction(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
+                                <input type="date" id="prod-date-entry" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Producto</label>
+                                <input type="text" id="prod-name-entry" required placeholder="Ej: Pasteurizado, Mantequilla Arroba" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">¿Cómo se comercializa?</label>
+                                <select id="prod-sale-type" onchange="handleSaleTypeChange()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                    <option value="kilos">Por Kilos (Ej: Pasteurizado por bloque)</option>
+                                    <option value="unidad">Por Unidades Fijas (Ej: Mantequilla, Librita de queso)</option>
+                                </select>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3" id="group-blocks">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nro. Bloques</label>
+                                    <input type="number" id="prod-blocks-entry" placeholder="4" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                                </div>
+                                <div id="group-kilos">
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Peso Total (Kilos)</label>
+                                    <input type="number" step="any" id="prod-kilos-entry" placeholder="12" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                                </div>
+                            </div>
+
+                            <div id="group-units" class="hidden">
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Cantidad en Stock (Unidades)</label>
+                                <input type="number" id="prod-units-entry" placeholder="10" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1" id="label-price-unit">Precio por Kilo ($)</label>
+                                <input type="number" id="prod-price-entry" required placeholder="18000" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
+                                Registrar en Inventario
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="boxes" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Stock Real Acumulado</span>
+                        </h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead>
+                                    <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
+                                        <th class="py-2.5 px-4 font-bold">Producto</th>
+                                        <th class="py-2.5 px-4 font-bold">Precio Configurado</th>
+                                        <th class="py-2.5 px-4 font-bold">Stock Disponible</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inventory-table-body"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="pt-4 border-t border-slate-100">
+                            <h4 class="font-bold text-emerald-950 text-sm mb-3 flex items-center space-x-2">
+                                <i data-lucide="history" class="w-4 h-4 text-emerald-600"></i>
+                                <span>Historial de Producción Reciente</span>
+                            </h4>
+                            <div id="production-history-list" class="space-y-2 max-h-40 overflow-y-auto pr-1"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA MÓDULO 4: ACOPIO DE LECHE Y CORTE QUINCENAL -->
+            <div id="view-leche" class="hidden space-y-6">
+                <div id="milk-tabs-container" class="flex space-x-2 border-b border-sky-100 pb-3">
+                    <button onclick="switchMilkTab('registro')" id="milk-tab-registro" class="px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
+                        1. Registro Diario de Litros
+                    </button>
+                    <button onclick="switchMilkTab('proveedores')" id="milk-tab-proveedores" class="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all">
+                        2. Administrar Proveedores y Quincena
+                    </button>
+                </div>
+
+                <!-- SECCIÓN 1: REGISTRO DIARIO -->
+                <div id="milk-section-registro" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-sky-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase">Litros Recibidos Hoy</p>
+                                <h3 class="text-2xl font-black text-sky-900 mt-1" id="stat-milk-today">0 L</h3>
+                            </div>
+                            <div class="p-3 bg-sky-100 text-sky-700 rounded-xl">
+                                <i data-lucide="droplet" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-sky-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase">Costo Est. Leche Hoy</p>
+                                <h3 class="text-2xl font-black text-emerald-700 mt-1" id="stat-milk-cost">$0</h3>
+                            </div>
+                            <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
+                                <i data-lucide="dollar-sign" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-sky-100 flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase">Proveedores Activos</p>
+                                <h3 class="text-2xl font-black text-slate-700 mt-1" id="stat-milk-providers">0</h3>
+                            </div>
+                            <div class="p-3 bg-slate-100 text-slate-700 rounded-xl">
+                                <i data-lucide="users" class="w-6 h-6"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-sky-100 space-y-4">
+                            <div class="border-b pb-3">
+                                <h3 class="font-bold text-sky-950 flex items-center space-x-2">
+                                    <i data-lucide="plus-circle" class="w-5 h-5 text-sky-600"></i>
+                                    <span>Registrar Litros de Ruta</span>
+                                </h3>
+                                <p class="text-xs text-slate-500 mt-1">Selecciona el proveedor y anota los litros que te entregó hoy en campo.</p>
+                            </div>
+                            <form id="milk-daily-form" onsubmit="addDailyMilk(event)" class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
+                                    <input type="date" id="daily-milk-date" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Proveedor / Finca</label>
+                                    <select id="daily-milk-provider-select" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                        <option value="">-- Elige un proveedor --</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Litros Entregados Hoy</label>
+                                    <input type="number" step="any" id="daily-milk-liters" required placeholder="Ej: 45" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                                </div>
+                                <button type="submit" class="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
+                                    Registrar Litros en Ruta
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-sky-100 space-y-4">
+                            <h3 class="font-bold text-sky-950 flex items-center space-x-2">
+                                <i data-lucide="history" class="w-5 h-5 text-sky-600"></i>
+                                <span>Historial Diario de Entregas (Ruta)</span>
+                            </h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm">
+                                    <thead>
+                                        <tr class="bg-sky-50 text-sky-900 border-b border-sky-100">
+                                            <th class="py-2.5 px-4 font-bold">Fecha</th>
+                                            <th class="py-2.5 px-4 font-bold">Proveedor</th>
+                                            <th class="py-2.5 px-4 font-bold">Litros</th>
+                                            <th class="py-2.5 px-4 font-bold text-right">Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="daily-milk-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 2: ADMINISTRAR PROVEEDORES Y CORTE QUINCENAL -->
+                <div id="milk-section-proveedores" class="hidden space-y-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="bg-white rounded-2xl p-5 shadow-sm border border-sky-100 space-y-4">
+                            <div class="border-b pb-3">
+                                <h3 class="font-bold text-sky-950 flex items-center space-x-2">
+                                    <i data-lucide="user-plus" class="w-5 h-5 text-sky-600"></i>
+                                    <span>Crear / Registrar Proveedor</span>
+                                </h3>
+                                <p class="text-xs text-slate-500 mt-1">Ingresa el nombre del proveedor y su precio quincenal por litro.</p>
+                            </div>
+                            <form id="provider-form" onsubmit="addMilkProvider(event)" class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Proveedor / Finca</label>
+                                    <input type="text" id="prov-name" required placeholder="Ej: Don Pedro, Finca El Recuerdo" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Precio por Litro Quincenal ($)</label>
+                                    <input type="number" id="prov-price" required placeholder="2100" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                                </div>
+                                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
+                                    Guardar Proveedor
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-sky-100 space-y-4">
+                            <div class="flex justify-between items-center border-b pb-3">
+                                <h3 class="font-bold text-sky-950 flex items-center space-x-2">
+                                    <i data-lucide="users" class="w-5 h-5 text-sky-600"></i>
+                                    <span>Corte Quincenal y Estado de Proveedores</span>
+                                </h3>
+                                <button onclick="resetQuincena()" class="text-xs bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+                                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                                    <span>Reiniciar Ciclo Quincenal</span>
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm">
+                                    <thead>
+                                        <tr class="bg-sky-50 text-sky-900 border-b border-sky-100">
+                                            <th class="py-2.5 px-4 font-bold">Proveedor</th>
+                                            <th class="py-2.5 px-4 font-bold">Precio/Litro</th>
+                                            <th class="py-2.5 px-4 font-bold">Total Litros (Quincena)</th>
+                                            <th class="py-2.5 px-4 font-bold text-right">Total a Pagar ($)</th>
+                                            <th class="py-2.5 px-4 font-bold text-right">Acciones de Pago</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="providers-table-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISTA MÓDULO 6: BALANCE MENSUAL -->
+            <div id="view-contabilidad" class="hidden space-y-6">
+                <div class="bg-white rounded-2xl p-6 shadow-sm border border-emerald-100 space-y-6">
+                    <div class="border-b pb-4 flex justify-between items-center">
+                        <div>
+                            <h3 class="font-bold text-emerald-950 text-xl flex items-center space-x-2">
+                                <i data-lucide="calculator" class="w-6 h-6 text-emerald-600"></i>
+                                <span>Balance Consolidado del Mes</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-1">Resumen total de ventas, ingresos digitales (Nequi), gastos y ganancia neta.</p>
+                        </div>
+                        <div id="current-month-label" class="bg-emerald-50 text-emerald-800 font-bold px-4 py-2 rounded-xl text-sm border border-emerald-200">
+                            Mes Actual
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                            <p class="text-xs font-bold text-slate-500 uppercase">Total Ventas (Mes)</p>
+                            <h4 class="text-2xl font-black text-slate-900 mt-2" id="monthly-total-sales">$0</h4>
+                        </div>
+                        <div class="bg-sky-50 p-5 rounded-2xl border border-sky-200">
+                            <p class="text-xs font-bold text-sky-700 uppercase">Total Nequi (Mes)</p>
+                            <h4 class="text-2xl font-black text-sky-900 mt-2" id="monthly-total-nequi">$0</h4>
+                        </div>
+                        <div class="bg-red-50 p-5 rounded-2xl border border-red-200">
+                            <p class="text-xs font-bold text-red-700 uppercase">Total Gastos (Mes)</p>
+                            <h4 class="text-2xl font-black text-red-900 mt-2" id="monthly-total-expenses">$0</h4>
+                        </div>
+                        <div class="bg-emerald-900 text-white p-5 rounded-2xl shadow-md">
+                            <p class="text-xs font-bold text-emerald-300 uppercase">Ganancia Neta (Libre)</p>
+                            <h4 class="text-2xl font-black text-white mt-2" id="monthly-net-profit">$0</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODALES -->
+    <div id="modal-config" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <h3 class="font-bold text-emerald-950 text-lg">Ajustes de la Empresa</h3>
+            <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">Nombre en la Tirilla</label>
+                <input type="text" id="modal-company-name-input" class="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-semibold">
+            </div>
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeConfigModal()" class="px-4 py-2 text-sm text-slate-600 font-bold">Cancelar</button>
+                <button onclick="saveCompanyName()" class="px-4 py-2 text-sm bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-receipt" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-center">
+            <div class="flex justify-between items-center border-b pb-2">
+                <h4 class="font-bold text-slate-800">Vista Previa de Tirilla</h4>
+                <button onclick="closeReceiptModal()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <div id="printable-receipt" class="receipt-font bg-white p-4 border border-dashed border-slate-300 text-left text-xs space-y-2 rounded-lg font-mono">
+                <div class="text-center space-y-1">
+                    <h3 class="font-bold text-base uppercase text-black" id="receipt-company">LÁCTEOS VICTORIA</h3>
+                    <p class="text-[10px] text-slate-600">Comprobante de Venta Directa</p>
+                    <p class="text-[10px] text-slate-600" id="receipt-date"></p>
+                </div>
+                <div class="border-t border-b border-black py-1 space-y-0.5">
+                    <p><strong>Cliente:</strong> <span id="receipt-client"></span></p>
+                    <p><strong>Pago:</strong> <span id="receipt-payment-method"></span></p>
+                </div>
+                <table class="w-full text-left mt-2">
+                    <thead>
+                        <tr class="border-b border-black">
+                            <th class="py-1">Cant/Item</th>
+                            <th class="text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="receipt-items-body"></tbody>
+                </table>
+                <div class="border-t border-black pt-2 space-y-1 font-bold">
+                    <div class="flex justify-between text-sm">
+                        <span>TOTAL:</span>
+                        <span id="receipt-total"></span>
+                    </div>
+                    <div class="flex justify-between text-[11px] font-normal">
+                        <span>Recibido:</span>
+                        <span id="receipt-received"></span>
+                    </div>
+                    <div class="flex justify-between text-[11px] font-normal">
+                        <span>Cambio:</span>
+                        <span id="receipt-change"></span>
+                    </div>
+                </div>
+                <div class="text-center pt-3 text-[10px] text-slate-500">
+                    <p>¡Gracias por su compra!</p>
+                    <p>Producto Fresco de Calidad</p>
+                </div>
+            </div>
+
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeReceiptModal()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm">Cerrar</button>
+                <button onclick="triggerPrint()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center space-x-1">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Imprimir Tirilla</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OBLIGATORIO: type="module" para que cargue correctamente los scripts de Firebase -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>
