@@ -33,7 +33,6 @@
             </div>
 
             <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
-                <!-- Selector de rol (Oculto en Login, automático; visible solo al Registrarse) -->
                 <div id="role-selection-field" class="hidden space-y-1">
                     <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Tipo de Usuario / Rol a Registrar</label>
                     <div class="relative">
@@ -704,7 +703,7 @@
         </div>
     </div>
 
-    <!-- Script Principal -->
-    <script type="module" src="./app.js"></script>
+    <!-- Script Principal con parámetro ?v=3 para evitar caché -->
+    <script type="module" src="./app.js?v=3"></script>
 </body>
 </html>
