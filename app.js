@@ -876,22 +876,21 @@ function renderSalesHistory() {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ventas.</td></tr>';
     } else {
         state.salesHistory.forEach(sale => {
-            // CORREGIDO: Muestra claramente los kilos y los bloques en el historial
             const itemsDesc = sale.items.map(i => {
                 if (i.saleType === 'kilos') {
                     const bloques = i.blocksEquivalent !== undefined ? i.blocksEquivalent : 0;
-                    return `${i.kilos} kg (${bloques} bloques) de ${i.name}`;
+                    return `<span class="font-bold text-emerald-900">${i.kilos} kg</span> (<span class="text-sky-800 font-bold">${bloques} bloques</span>) de ${i.name}`;
                 } else {
-                    return `${i.units} und de ${i.name}`;
+                    return `<span class="font-bold text-emerald-900">${i.units} und</span> de ${i.name}`;
                 }
-            }).join(', ');
+            }).join(' | ');
 
             tbody.innerHTML += `
-                <tr class="border-b border-emerald-50">
+                <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
                     <td class="py-3 px-4 font-mono text-xs text-slate-500">${sale.date}</td>
                     <td class="py-3 px-4 font-bold text-slate-800">${sale.clientName}</td>
-                    <td class="py-3 px-4 text-slate-600 text-xs">${itemsDesc}</td>
-                    <td class="py-3 px-4"><span class="px-2 py-1 rounded-full text-xs font-bold ${sale.paymentMethod === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}">${sale.paymentMethod}</span></td>
+                    <td class="py-3 px-4 text-slate-700 text-xs">${itemsDesc}</td>
+                    <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${sale.paymentMethod === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}">${sale.paymentMethod}</span></td>
                     <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">$${sale.total.toLocaleString('es-CO')}</td>
                 </tr>`;
         });
