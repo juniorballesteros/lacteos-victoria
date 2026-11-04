@@ -33,12 +33,12 @@
             </div>
 
             <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
-                <!-- CORREGIDO: Se removió 'hidden' para que aparezca visible por defecto al cargar -->
-                <div id="role-selection-field" class="space-y-1">
-                    <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Tipo de Usuario / Rol</label>
+                <!-- Selector de rol (Oculto en Login, se muestra automáticamente al Registrarse) -->
+                <div id="role-selection-field" class="hidden space-y-1">
+                    <label class="block text-xs font-bold text-emerald-900 uppercase tracking-wider mb-1">Tipo de Usuario / Rol a Registrar</label>
                     <div class="relative">
                         <i data-lucide="user-cog" class="w-5 h-5 absolute left-3 top-3 text-emerald-600"></i>
-                        <select id="user-role-input" onchange="checkRoleVisibility()" class="w-full pl-10 pr-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-bold text-emerald-950">
+                        <select id="user-role-input" class="w-full pl-10 pr-4 py-2.5 bg-emerald-50/50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm font-bold text-emerald-950">
                             <option value="admin">Dueño / Administrador (Acceso Total)</option>
                             <option value="conductor">Conductor / Recolector de Ruta (Solo Acopio)</option>
                         </select>

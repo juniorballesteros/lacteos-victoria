@@ -2,10 +2,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
 
-// Credenciales oficiales de tu nuevo proyecto en Firebase
+// Credenciales oficiales de tu proyecto en Firebase
 const firebaseConfig = {
     apiKey: "AIzaSyAXWC6FgkeLlOtzH4_gPTwkRQzKrbAPCkE",
     authDomain: "lacteosvictoria-2b574.firebaseapp.com",
+    databaseURL: "https://lacteosvictoria-2b574-default-rtdb.firebaseio.com",
     projectId: "lacteosvictoria-2b574",
     storageBucket: "lacteosvictoria-2b574.appfirebasestorage.app",
     messagingSenderId: "1010099938727",
@@ -22,7 +23,7 @@ const STORAGE_KEY = 'lacteos_app_master_db';
 let state = {
     companyName: 'Lácteos Victoria',
     authMode: 'login',
-    currentUserRole: 'admin', // 'admin' (Dueño) o 'conductor' (Recolector)
+    currentUserRole: 'admin', 
     registeredUsers: [], 
     currentUserEmail: null,
     clients: [], 
@@ -51,7 +52,6 @@ function loadSavedDataFromCloud() {
             state.milkProviders = parsed.milkProviders || [];
             state.dailyMilkLogs = parsed.dailyMilkLogs || [];
 
-            // Refrescar vistas en tiempo real si la sesión está activa
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
                 renderProductsPOS();
@@ -108,12 +108,13 @@ function updateDateDisplay() {
     if (dateEl) dateEl.innerText = now.toLocaleDateString('es-CO');
 }
 
-// CONTROL DE LOGIN / REGISTRO
+// CONTROL DE LOGIN / REGISTRO (Oculta rol en login, lo muestra en registro)
 function switchAuthTab(mode) {
     state.authMode = mode;
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
     const roleField = document.getElementById('role-selection-field');
+    const companyField = document.getElementById('company-name-field');
     const strengthContainer = document.getElementById('password-strength-container');
     const authBtn = document.getElementById('auth-btn');
 
@@ -124,32 +125,17 @@ function switchAuthTab(mode) {
         if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
         if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
         if (roleField) roleField.classList.remove('hidden');
+        if (companyField) companyField.classList.remove('hidden');
         if (strengthContainer) strengthContainer.classList.remove('hidden');
         if (authBtn) authBtn.querySelector('span').innerText = "Crear Cuenta";
-        
-        checkRoleVisibility();
         checkPasswordStrength('');
     } else {
         if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
         if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
-        const companyField = document.getElementById('company-name-field');
+        if (roleField) roleField.classList.add('hidden');
         if (companyField) companyField.classList.add('hidden');
-        if (roleField) roleField.classList.remove('hidden');
         if (strengthContainer) strengthContainer.classList.add('hidden');
         if (authBtn) authBtn.querySelector('span').innerText = "Ingresar al Sistema";
-    }
-}
-
-function checkRoleVisibility() {
-    const roleInput = document.getElementById('user-role-input');
-    const companyField = document.getElementById('company-name-field');
-    
-    if (!roleInput || !companyField) return;
-
-    if (roleInput.value === 'admin') {
-        companyField.classList.remove('hidden');
-    } else {
-        companyField.classList.add('hidden');
     }
 }
 
@@ -184,13 +170,14 @@ function checkPasswordStrength(password) {
     }
 }
 
+// MANEJO DE AUTENTICACIÓN CON DETECCIÓN AUTOMÁTICA DE ROL
 function handleAuthSubmit(e) {
     e.preventDefault();
     const email = document.getElementById('email-input').value.trim();
     const password = document.getElementById('password-input').value.trim();
-    const roleInput = document.getElementById('user-role-input').value;
 
     if (state.authMode === 'register') {
+        const roleInput = document.getElementById('user-role-input').value;
         const companyInput = document.getElementById('company-name-input').value.trim();
         
         if (roleInput === 'admin' && companyInput) {
@@ -215,9 +202,12 @@ function handleAuthSubmit(e) {
         return;
     }
 
+    // INICIO DE SESIÓN: Detecta el rol automáticamente desde la base de datos
     let foundUser = state.registeredUsers.find(u => u.email === email && u.password === password);
+    
+    // Si no hay usuarios registrados y es la primera vez, crea uno admin por defecto
     if (!foundUser && state.registeredUsers.length === 0) {
-        foundUser = { email, password, role: roleInput };
+        foundUser = { email, password, role: 'admin' };
         state.registeredUsers.push(foundUser);
         saveData();
     }
@@ -227,6 +217,7 @@ function handleAuthSubmit(e) {
         return;
     }
 
+    // Asignación automática del rol guardado
     state.currentUserRole = foundUser.role;
     state.currentUserEmail = foundUser.email;
 
@@ -1009,7 +1000,6 @@ function switchModule(modName) {
 // EXPORTAR FUNCIONES AL ÁMBITO GLOBAL
 window.switchAuthTab = switchAuthTab;
 window.handleAuthSubmit = handleAuthSubmit;
-window.checkRoleVisibility = checkRoleVisibility;
 window.checkPasswordStrength = checkPasswordStrength;
 window.switchModule = switchModule;
 window.toggleNewClientForm = toggleNewClientForm;
