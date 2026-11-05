@@ -36,6 +36,15 @@ let state = {
     cart: []
 };
 
+// FUNCIÓN AUXILIAR: Obtiene la fecha local exacta de Colombia (Evita error UTC)
+function getLocalDateString() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 // CARGAR DATOS DESDE LA NUBE EN TIEMPO REAL
 function loadSavedDataFromCloud() {
     const dbRef = ref(db, STORAGE_KEY);
@@ -449,7 +458,7 @@ function payProviderQuincena(providerId) {
 
     state.expenses.unshift({
         id: Date.now(),
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         name: `Pago Quincena Leche: ${prov.name} (${totalLiters} L)`,
         amount: totalToPay
     });
@@ -527,7 +536,7 @@ function renderDailyMilkTable() {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     let totalLitersToday = 0, totalCostToday = 0;
 
     if (state.dailyMilkLogs.length === 0) {
@@ -813,7 +822,7 @@ function processSaleAndPrint() {
     state.salesHistory.unshift({
         id: Date.now(),
         date: new Date().toLocaleString('es-CO'),
-        rawDate: new Date().toISOString().split('T')[0],
+        rawDate: getLocalDateString(), // Corregido con hora local
         clientName: client.name,
         paymentMethod,
         items: [...state.cart],
@@ -855,7 +864,7 @@ function renderSalesHistory() {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString(); // Corregido con hora local
     let totalVendidoHoy = 0, totalNequiHoy = 0, totalEfectivoHoy = 0, totalGastosHoy = 0;
 
     state.salesHistory.forEach(sale => {
