@@ -34,6 +34,7 @@ let state = {
     milkProviders: [], 
     dailyMilkLogs: [], 
     yieldLogs: [], 
+    clientDebts: [], // Módulo 1: Cuentas por Cobrar / Créditos
     cart: []
 };
 
@@ -65,6 +66,7 @@ function loadSavedDataFromCloud() {
             state.milkProviders = parsed.milkProviders || [];
             state.dailyMilkLogs = parsed.dailyMilkLogs || [];
             state.yieldLogs = parsed.yieldLogs || [];
+            state.clientDebts = parsed.clientDebts || [];
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
@@ -78,6 +80,7 @@ function loadSavedDataFromCloud() {
                 renderDailyMilkTable();
                 renderYieldTable();
                 renderMonthlyBalance();
+                renderClientAccountsTable();
                 onYieldDateChange();
             }
         }
@@ -96,7 +99,8 @@ function saveData() {
         expenses: state.expenses,
         milkProviders: state.milkProviders,
         dailyMilkLogs: state.dailyMilkLogs,
-        yieldLogs: state.yieldLogs
+        yieldLogs: state.yieldLogs,
+        clientDebts: state.clientDebts
     };
     
     set(ref(db, STORAGE_KEY), dataToSave).catch((error) => {
@@ -253,6 +257,7 @@ function handleAuthSubmit(e) {
     renderDailyMilkTable();
     renderYieldTable();
     renderMonthlyBalance();
+    renderClientAccountsTable();
     if (window.lucide) lucide.createIcons();
 }
 
@@ -277,7 +282,7 @@ function applyUserRoleInterface() {
 
         const tabProv = document.getElementById('milk-tab-proveedores');
         if (tabProv) tabProv.classList.remove('hidden');
-        switchModule('ventas');
+        switchModule('cuentas');
     }
 }
 
@@ -315,6 +320,99 @@ function renderClientSelect() {
     state.clients.forEach(c => {
         select.innerHTML += `<option value="${c.id}">${c.name} ${c.phone ? '(' + c.phone + ')' : ''}</option>`;
     });
+}
+
+// MÓDULO 1: CUENTAS POR COBRAR / FIADOS
+function renderClientAccountsTable() {
+    const tbody = document.getElementById('client-accounts-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    let totalCarteraGeneral = 0;
+    let debtorsSet = new Set();
+
+    if (state.clientDebts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-slate-400 font-medium">No hay cuentas por cobrar registradas. ¡Todos al día!</td></tr>';
+        document.getElementById('stat-total-deudas').innerText = '$0';
+        document.getElementById('stat-clients-debtors').innerText = '0';
+        return;
+    }
+
+    // Ordenar de más antiguo a más nuevo para que cumpla el criterio de cobrar primero lo viejo
+    state.clientDebts.sort((a, b) => a.id - b.id);
+
+    state.clientDebts.forEach(debt => {
+        const saldoPendiente = Math.max(0, debt.totalAmount - debt.paidAmount);
+        if (saldoPendiente > 0) {
+            totalCarteraGeneral += saldoPendiente;
+            debtorsSet.add(debt.clientId);
+        }
+
+        const statusBadge = debt.status === 'pagado' 
+            ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Cancelado</span>'
+            : '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Pendiente</span>';
+
+        tbody.innerHTML += `
+            <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
+                <td class="py-3 px-4 font-mono text-xs text-slate-500">${debt.date}</td>
+                <td class="py-3 px-4 font-bold text-slate-900">${debt.clientName}</td>
+                <td class="py-3 px-4 text-slate-700 text-xs">${debt.concept}</td>
+                <td class="py-3 px-4 text-right font-mono font-bold text-slate-800">$${debt.totalAmount.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono text-emerald-700">$${debt.paidAmount.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${saldoPendiente.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-center">${statusBadge}</td>
+                <td class="py-3 px-4 text-right space-x-1">
+                    ${saldoPendiente > 0 ? `<button onclick="promptPayDebt(${debt.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded-lg shadow-sm">Abonar</button>` : ''}
+                    <button onclick="deleteDebtRecord(${debt.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button>
+                </td>
+            </tr>`;
+    });
+
+    document.getElementById('stat-total-deudas').innerText = `$${totalCarteraGeneral.toLocaleString('es-CO')}`;
+    document.getElementById('stat-clients-debtors').innerText = debtorsSet.size;
+}
+
+function promptPayDebt(debtId) {
+    const debt = state.clientDebts.find(d => d.id === debtId);
+    if (!debt) return;
+    const saldo = debt.totalAmount - debt.paidAmount;
+    const inputAbono = prompt(`Registrar abono para ${debt.clientName} (Saldo pendiente: $${saldo.toLocaleString('es-CO')}):`, saldo);
+    if (inputAbono === null) return;
+    const abono = parseFloat(inputAbono);
+    if (isNaN(abono) || abono <= 0) return alert('Monto inválido.');
+
+    const metP = prompt("Método de ingreso del abono (Efectivo / Nequi):", "Efectivo") || "Efectivo";
+
+    debt.paidAmount = Math.min(debt.totalAmount, debt.paidAmount + abono);
+    if (debt.paidAmount >= debt.totalAmount) {
+        debt.status = 'pagado';
+    }
+
+    // Registrar en historial de ingresos de caja (dinero recibido)
+    state.salesHistory.unshift({
+        id: Date.now(),
+        date: new Date().toLocaleString('es-CO'),
+        rawDate: getLocalDateString(),
+        clientName: debt.clientName,
+        paymentMethod: metP,
+        items: [{ name: `Abono a Cuenta (${debt.date})`, saleType: 'unidad', units: 1, price: abono }],
+        total: abono,
+        isAbono: true
+    });
+
+    saveData();
+    renderClientAccountsTable();
+    renderSalesHistory();
+    renderMonthlyBalance();
+    alert(`¡Abono de $${abono.toLocaleString('es-CO')} registrado con éxito!`);
+}
+
+function deleteDebtRecord(id) {
+    if (confirm("¿Eliminar este registro de cuenta por cobrar?")) {
+        state.clientDebts = state.clientDebts.filter(d => d.id !== id);
+        saveData();
+        renderClientAccountsTable();
+    }
 }
 
 // GASTOS
@@ -592,7 +690,7 @@ function resetQuincena() {
     }
 }
 
-// MÓDULO 5: RENDIMIENTO Y COSTOS (SISTEMA DE DESCUENTO Y MULTI-PRODUCTO)
+// MÓDULO 5: RENDIMIENTO Y COSTOS
 function handleYieldTypeChange() {
     const type = document.getElementById('yield-type').value;
     const weightLabel = document.getElementById('yield-weight-label');
@@ -641,7 +739,7 @@ function onYieldDateChange() {
         litersInput.value = 0;
         costInput.value = 0;
         currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
-        detailsEl.innerHTML = `<span class="text-red-600 font-bold">⚠️ No hay leche registrada en el Módulo 4 (Acopio) para el ${dateVal}. Ingresa los litros en el acopio primero.</span>`;
+        detailsEl.innerHTML = `<span class="text-red-600 font-bold">⚠️ No hay leche registrada en el Módulo 4 (Acopio) para el ${dateVal}.</span>`;
         if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.className = "w-full bg-slate-300 text-slate-500 font-bold py-3 rounded-xl text-sm cursor-not-allowed";
@@ -658,7 +756,6 @@ function onYieldDateChange() {
 
     const avgCostPerLiter = totalLitersDay > 0 ? totalCostDay / totalLitersDay : 0;
 
-    // Calcular litros ya usados en otros lotes/productos de esta misma fecha
     let usedLitersDay = 0;
     state.yieldLogs.forEach(y => {
         if (y.date === dateVal) {
@@ -667,18 +764,12 @@ function onYieldDateChange() {
     });
 
     const remainingLiters = Math.max(0, totalLitersDay - usedLitersDay);
-
-    currentDayMilkData = {
-        totalLiters: totalLitersDay,
-        totalCost: totalCostDay,
-        avgCostPerLiter,
-        remainingLiters
-    };
+    currentDayMilkData = { totalLiters: totalLitersDay, totalCost: totalCostDay, avgCostPerLiter, remainingLiters };
 
     if (remainingLiters <= 0) {
         litersInput.value = 0;
         costInput.value = 0;
-        detailsEl.innerHTML = `<span class="text-red-600 font-bold">🔒 La leche del ${dateVal} (Total: ${totalLitersDay} L) ya fue utilizada al 100% en tus producciones registradas.</span>`;
+        detailsEl.innerHTML = `<span class="text-red-600 font-bold">🔒 La leche del ${dateVal} ya fue utilizada al 100%.</span>`;
         if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.className = "w-full bg-slate-300 text-slate-500 font-bold py-3 rounded-xl text-sm cursor-not-allowed";
@@ -699,8 +790,8 @@ function onYieldDateChange() {
     const cantinasRem = (remainingLiters / 40).toFixed(2);
 
     detailsEl.innerHTML = `
-        <p class="font-bold text-emerald-950">🥛 Día ${dateVal} — Total: <b>${totalLitersDay} L</b> (${cantinasTotal} cant) | Usado: <b>${usedLitersDay} L</b> (${cantinasUsed})</p>
-        <p class="font-bold text-amber-800 mt-0.5">✨ Disponible para este producto: <b>${remainingLiters} L</b> (~${cantinasRem} cantinas)</p>
+        <p class="font-bold text-emerald-950">🥛 Día ${dateVal} — Total: <b>${totalLitersDay} L</b> (${cantinasTotal} cant) | Usado: <b>${usedLitersDay} L</b></p>
+        <p class="font-bold text-amber-800 mt-0.5">✨ Disponible: <b>${remainingLiters} L</b> (~${cantinasRem} cantinas)</p>
     `;
 }
 
@@ -720,16 +811,15 @@ function addYieldLog(e) {
     const productName = document.getElementById('yield-product-name').value.trim();
     const liters = parseFloat(document.getElementById('yield-liters').value) || 0;
     const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
-    const yieldType = document.getElementById('yield-type').value; // 'kilos' or 'libras'
+    const yieldType = document.getElementById('yield-type').value;
     const customTarget = parseFloat(document.getElementById('yield-custom-target').value) || (yieldType === 'libras' ? 16.5 : 8.25);
     const totalWeight = parseFloat(document.getElementById('yield-weight-val').value) || 0;
     const salePricePerUnit = parseFloat(document.getElementById('yield-sale-price').value) || 0;
 
     if (!date || !productName || liters <= 0 || milkCost <= 0 || totalWeight <= 0 || salePricePerUnit <= 0) {
-        return alert('Completa todos los campos obligatorios y verifica que los litros y pesos sean mayores a cero.');
+        return alert('Completa todos los campos obligatorios.');
     }
 
-    // Validar que no exceda lo disponible en esa fecha
     let totalLitersDay = 0;
     state.dailyMilkLogs.forEach(l => { if (l.date === date) totalLitersDay += l.liters; });
     let usedLitersDay = 0;
@@ -740,18 +830,11 @@ function addYieldLog(e) {
         return alert(`⚠️ Estás asignando ${liters} L, pero solo quedan ${remainingLiters} L disponibles para el ${date}.`);
     }
 
-    // 1 Cantina = 40 Litros
     const cantinasExactas = parseFloat((liters / 40).toFixed(2));
     const cantinasEnteras = Math.floor(liters / 40);
     const litrosSobrantes = liters % 40;
-    
-    // Promedio por cantina (kg/cant o lb/cant)
     const promedioPorCantina = cantinasExactas > 0 ? parseFloat((totalWeight / cantinasExactas).toFixed(2)) : 0;
-    
-    // Costo de producción por unidad
     const costoPorUnidad = totalWeight > 0 ? parseFloat((milkCost / totalWeight).toFixed(2)) : 0;
-
-    // Venta y ganancia neta del lote
     const totalVentaLote = totalWeight * salePricePerUnit;
     const gananciaNetaLote = totalVentaLote - milkCost;
 
@@ -780,7 +863,7 @@ function addYieldLog(e) {
     handleYieldTypeChange();
     onYieldDateChange();
     renderYieldTable();
-    alert(`¡Rendimiento de "${productName}" registrado!\nAsignado: ${cantinasExactas} cantinas (${liters} L)\nPromedio: ${promedioPorCantina} ${yieldType === 'kilos' ? 'kg' : 'lb'}/cant (Meta: ${customTarget})\nGanancia Neta: $${gananciaNetaLote.toLocaleString('es-CO')}`);
+    alert(`¡Rendimiento de "${productName}" registrado!\nPromedio: ${promedioPorCantina} ${yieldType === 'kilos' ? 'kg' : 'lb'}/cant (Meta: ${customTarget})`);
 }
 
 function renderYieldTable() {
@@ -807,12 +890,12 @@ function renderYieldTable() {
         const cantinasText = log.cantinasText || `${cantinasExactas.toFixed(1)} cant`;
         const productName = log.productName || 'Queso / Lote';
         const yieldType = log.yieldType || 'kilos';
-        const totalWeight = log.totalWeight !== undefined ? log.totalWeight : (log.cheeseKg || 0);
+        const totalWeight = log.totalWeight !== undefined ? log.totalWeight : 0;
         const customTarget = log.customTarget !== undefined ? log.customTarget : (yieldType === 'libras' ? 16.5 : 8.25);
         const promedioPorCantina = log.promedioPorCantina || (cantinasExactas > 0 ? parseFloat((totalWeight / cantinasExactas).toFixed(2)) : 0);
         const milkCost = log.milkCost || 0;
         const costoPorUnidad = log.costoPorUnidad || (totalWeight > 0 ? parseFloat((milkCost / totalWeight).toFixed(2)) : 0);
-        const salePricePerUnit = log.salePricePerUnit || log.salePricePerKg || 0;
+        const salePricePerUnit = log.salePricePerUnit || 0;
         const totalVentaLote = log.totalVentaLote || (totalWeight * salePricePerUnit);
         const gananciaNetaLote = log.gananciaNetaLote !== undefined ? log.gananciaNetaLote : (totalVentaLote - milkCost);
 
@@ -1051,7 +1134,7 @@ function renderCart() {
     if (!cartContainer) return;
 
     if (state.cart.length === 0) {
-        cartContainer.innerHTML = '<p class="text-emerald-400/60 text-center text-sm py-8">No has agregado productos.</p>';
+        cartContainer.innerHTML = '<p class="text-emerald-400/60 text-center text-sm py-6">No has agregado productos.</p>';
         document.getElementById('cart-total').innerText = '$0';
         calculateChange();
         return;
@@ -1073,10 +1156,21 @@ function renderCart() {
 function calculateChange() {
     const total = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
     const received = parseFloat(document.getElementById('received-amount').value) || 0;
-    const change = received - total;
+    const diff = received - total;
+    
     const changeEl = document.getElementById('change-amount');
-    if (!changeEl) return;
-    changeEl.innerText = change >= 0 ? `$${change.toLocaleString('es-CO')}` : `Falta $${Math.abs(change).toLocaleString('es-CO')}`;
+    const labelChangeText = document.getElementById('label-change-text');
+    if (!changeEl || !labelChangeText) return;
+
+    if (diff >= 0) {
+        labelChangeText.innerText = "Cambio / Vueltas:";
+        changeEl.innerText = `$${diff.toLocaleString('es-CO')}`;
+        changeEl.className = "text-lg font-mono font-bold text-emerald-400";
+    } else {
+        labelChangeText.innerText = "Queda Fiado (Deuda):";
+        changeEl.innerText = `$${Math.abs(diff).toLocaleString('es-CO')}`;
+        changeEl.className = "text-lg font-mono font-bold text-amber-400";
+    }
 }
 
 function processSaleAndPrint() {
@@ -1086,9 +1180,10 @@ function processSaleAndPrint() {
 
     const client = state.clients.find(c => c.id == clientId);
     const paymentMethod = document.getElementById('payment-method').value;
-    const total = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
-    const received = parseFloat(document.getElementById('received-amount').value) || 0;
+    const totalVenta = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
+    const dineroRecibido = parseFloat(document.getElementById('received-amount').value) || 0;
 
+    // Descontar inventario de productos vendidos
     state.cart.forEach(item => {
         const product = state.products.find(p => p.id === item.id);
         if (product) {
@@ -1101,18 +1196,68 @@ function processSaleAndPrint() {
         }
     });
 
-    state.salesHistory.unshift({
-        id: Date.now(),
-        date: new Date().toLocaleString('es-CO'),
-        rawDate: getLocalDateString(),
-        clientName: client.name,
-        paymentMethod,
-        items: [...state.cart],
-        total
-    });
+    let dineroEntraCaja = 0;
+    let montoFiado = 0;
+
+    if (dineroRecibido < totalVenta) {
+        // Parte de la venta queda fiada
+        montoFiado = totalVenta - dineroRecibido;
+        dineroEntraCaja = dineroRecibido;
+
+        // Registrar nueva cuenta por cobrar (deuda)
+        state.clientDebts.push({
+            id: Date.now(),
+            clientId: client.id,
+            clientName: client.name,
+            date: new Date().toLocaleDateString('es-CO'),
+            concept: `Venta Directa (Fiado parcial)`,
+            totalAmount: montoFiado,
+            paidAmount: 0,
+            status: 'pendiente'
+        });
+    } else if (dineroRecibido > totalVenta) {
+        // Paga la venta completa y sobra para abonar a deudas viejas
+        dineroEntraCaja = totalVenta;
+        let excedenteAbono = dineroRecibido - totalVenta;
+
+        // Buscar deudas pendientes de este cliente y abonarles de la más antigua a la más nueva
+        const clientPendings = state.clientDebts.filter(d => d.clientId == client.id && d.status === 'pendiente');
+        clientPendings.sort((a, b) => a.id - b.id);
+
+        for (let debt of clientPendings) {
+            if (excedenteAbono <= 0) break;
+            const saldoDeuda = debt.totalAmount - debt.paidAmount;
+            if (excedenteAbono >= saldoDeuda) {
+                excedenteAbono -= saldoDeuda;
+                debt.paidAmount = debt.totalAmount;
+                debt.status = 'pagado';
+            } else {
+                debt.paidAmount += excedenteAbono;
+                excedenteAbono = 0;
+            }
+        }
+    } else {
+        // Pago exacto
+        dineroEntraCaja = totalVenta;
+    }
+
+    // Registrar en historial de caja sólo el dinero real recibido que entra al negocio hoy
+    if (dineroEntraCaja > 0) {
+        state.salesHistory.unshift({
+            id: Date.now(),
+            date: new Date().toLocaleString('es-CO'),
+            rawDate: getLocalDateString(),
+            clientName: client.name,
+            paymentMethod,
+            items: [...state.cart],
+            total: dineroEntraCaja,
+            totalVentaOriginal: totalVenta
+        });
+    }
 
     saveData();
 
+    // Mostrar tirilla
     document.getElementById('receipt-company').innerText = state.companyName.toUpperCase();
     document.getElementById('receipt-date').innerText = new Date().toLocaleString('es-CO');
     document.getElementById('receipt-client').innerText = client.name;
@@ -1125,9 +1270,21 @@ function processSaleAndPrint() {
         tbody.innerHTML += `<tr><td>${item.name} (${desc})</td><td class="text-right font-bold">$${(item.saleType === 'kilos' ? item.price * item.kilos : item.price * item.units).toLocaleString('es-CO')}</td></tr>`;
     });
 
-    document.getElementById('receipt-total').innerText = `$${total.toLocaleString('es-CO')}`;
-    document.getElementById('receipt-received').innerText = `$${received.toLocaleString('es-CO')}`;
-    document.getElementById('receipt-change').innerText = `$${Math.max(0, received - total).toLocaleString('es-CO')}`;
+    document.getElementById('receipt-total').innerText = `$${totalVenta.toLocaleString('es-CO')}`;
+    document.getElementById('receipt-received').innerText = `$${dineroRecibido.toLocaleString('es-CO')}`;
+    
+    const receiptChangeRow = document.getElementById('receipt-change-row');
+    const receiptDebtRow = document.getElementById('receipt-debt-row');
+
+    if (dineroRecibido >= totalVenta) {
+        receiptChangeRow.style.display = 'flex';
+        receiptDebtRow.style.display = 'none';
+        document.getElementById('receipt-change').innerText = `$${(dineroRecibido - totalVenta).toLocaleString('es-CO')}`;
+    } else {
+        receiptChangeRow.style.display = 'none';
+        receiptDebtRow.style.display = 'flex';
+        document.getElementById('receipt-debt').innerText = `$${montoFiado.toLocaleString('es-CO')}`;
+    }
 
     document.getElementById('modal-receipt').classList.remove('hidden');
     document.getElementById('modal-receipt').classList.add('flex');
@@ -1136,6 +1293,8 @@ function processSaleAndPrint() {
     renderInventoryTable();
     renderSalesHistory();
     renderMonthlyBalance();
+    renderClientAccountsTable();
+
     state.cart = [];
     document.getElementById('received-amount').value = '';
     renderCart();
@@ -1147,11 +1306,11 @@ function renderSalesHistory() {
     tbody.innerHTML = '';
 
     const todayStr = getLocalDateString();
-    let totalVendidoHoy = 0, totalNequiHoy = 0, totalEfectivoHoy = 0, totalGastosHoy = 0;
+    let totalIngresadoHoy = 0, totalNequiHoy = 0, totalEfectivoHoy = 0, totalGastosHoy = 0;
 
     state.salesHistory.forEach(sale => {
         if ((sale.rawDate || sale.date) === todayStr) {
-            totalVendidoHoy += sale.total;
+            totalIngresadoHoy += sale.total;
             if (sale.paymentMethod === 'Nequi') totalNequiHoy += sale.total;
             else if (sale.paymentMethod === 'Efectivo') totalEfectivoHoy += sale.total;
         }
@@ -1164,17 +1323,12 @@ function renderSalesHistory() {
     const efectivoRealEnCaja = Math.max(0, totalEfectivoHoy - totalGastosHoy);
 
     if (state.salesHistory.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ventas.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ingresos registrados hoy.</td></tr>';
     } else {
         state.salesHistory.forEach(sale => {
-            const itemsDesc = sale.items.map(i => {
-                if (i.saleType === 'kilos') {
-                    const bloques = i.blocksEquivalent !== undefined ? i.blocksEquivalent : 0;
-                    return `<span class="font-bold text-emerald-900">${i.kilos} kg</span> (<span class="text-sky-800 font-bold">${bloques} bloques</span>) de ${i.name}`;
-                } else {
-                    return `<span class="font-bold text-emerald-900">${i.units} und</span> de ${i.name}`;
-                }
-            }).join(' | ');
+            const itemsDesc = sale.isAbono 
+                ? `<span class="font-bold text-amber-800">${sale.items[0].name}</span>`
+                : sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg de ${i.name}` : `${i.units} und de ${i.name}`).join(' | ');
 
             tbody.innerHTML += `
                 <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
@@ -1182,7 +1336,7 @@ function renderSalesHistory() {
                     <td class="py-3 px-4 font-bold text-slate-800">${sale.clientName}</td>
                     <td class="py-3 px-4 text-slate-700 text-xs">${itemsDesc}</td>
                     <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${sale.paymentMethod === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}">${sale.paymentMethod}</span></td>
-                    <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">$${sale.total.toLocaleString('es-CO')}</td>
+                    <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">+$${sale.total.toLocaleString('es-CO')}</td>
                 </tr>`;
         });
     }
@@ -1192,7 +1346,7 @@ function renderSalesHistory() {
     const statTotalGastos = document.getElementById('stat-total-gastos');
     const statEfectivoCaja = document.getElementById('stat-efectivo-caja');
 
-    if (statTotalHoy) statTotalHoy.innerText = `$${totalVendidoHoy.toLocaleString('es-CO')}`;
+    if (statTotalHoy) statTotalHoy.innerText = `$${totalIngresadoHoy.toLocaleString('es-CO')}`;
     if (statTotalNequi) statTotalNequi.innerText = `$${totalNequiHoy.toLocaleString('es-CO')}`;
     if (statTotalGastos) statTotalGastos.innerText = `-$${totalGastosHoy.toLocaleString('es-CO')}`;
     if (statEfectivoCaja) statEfectivoCaja.innerText = `$${efectivoRealEnCaja.toLocaleString('es-CO')}`;
@@ -1218,7 +1372,7 @@ function renderMonthlyBalance() {
 }
 
 function clearSalesHistory() {
-    if (confirm("¿Borrar historial de ventas?")) {
+    if (confirm("¿Borrar historial de ingresos?")) {
         state.salesHistory = [];
         saveData();
         renderSalesHistory();
@@ -1261,7 +1415,7 @@ function switchModule(modName) {
         modName = 'leche';
     }
 
-    const views = ['ventas', 'historial', 'gastos', 'inventario', 'leche', 'vehiculos', 'contabilidad'];
+    const views = ['cuentas', 'ventas', 'historial', 'gastos', 'inventario', 'leche', 'vehiculos', 'contabilidad'];
     views.forEach(v => {
         const viewEl = document.getElementById(`view-${v}`);
         const btnEl = document.getElementById(`mod-btn-${v}`);
@@ -1275,6 +1429,10 @@ function switchModule(modName) {
             }
         }
     });
+
+    if (modName === 'cuentas') {
+        renderClientAccountsTable();
+    }
 
     if (modName === 'leche') {
         const dateInput = document.getElementById('daily-milk-date');
@@ -1337,3 +1495,5 @@ window.onYieldLitersInput = onYieldLitersInput;
 window.handleYieldTypeChange = handleYieldTypeChange;
 window.addYieldLog = addYieldLog;
 window.deleteYieldLog = deleteYieldLog;
+window.promptPayDebt = promptPayDebt;
+window.deleteDebtRecord = deleteDebtRecord;

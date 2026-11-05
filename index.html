@@ -115,8 +115,12 @@
         <!-- MENÚ DE MÓDULOS -->
         <nav id="main-nav-modules" class="bg-white border-b border-emerald-100 shadow-sm">
             <div class="max-w-7xl mx-auto px-4 flex space-x-2 overflow-x-auto py-2">
-                <button onclick="switchModule('ventas')" id="mod-btn-ventas" class="mod-btn active border-b-2 border-emerald-600 text-emerald-800 font-bold px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap bg-emerald-50/50 rounded-t-lg">
-                    <i data-lucide="shopping-cart" class="w-4 h-4 text-emerald-600"></i>
+                <button onclick="switchModule('cuentas')" id="mod-btn-cuentas" class="mod-btn active border-b-2 border-emerald-600 text-emerald-800 font-bold px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap bg-emerald-50/50 rounded-t-lg">
+                    <i data-lucide="book-open" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Módulo 1: Cuentas por Cobrar</span>
+                </button>
+                <button onclick="switchModule('ventas')" id="mod-btn-ventas" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="shopping-cart" class="w-4 h-4"></i>
                     <span>Módulo 2: POS Ventas</span>
                 </button>
                 <button onclick="switchModule('historial')" id="mod-btn-historial" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
@@ -148,8 +152,59 @@
 
         <main class="max-w-7xl mx-auto w-full p-4 md:p-6 flex-1">
             
+            <!-- VISTA MÓDULO 1: CUENTAS POR COBRAR (DEUDAS DE CLIENTES) -->
+            <div id="view-cuentas" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Total Cartera por Cobrar (Deudas)</p>
+                            <h3 class="text-2xl font-black text-amber-800 mt-1" id="stat-total-deudas">$0</h3>
+                        </div>
+                        <div class="p-3 bg-amber-100 text-amber-800 rounded-xl">
+                            <i data-lucide="book-open" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Clientes con Saldo Pendiente</p>
+                            <h3 class="text-2xl font-black text-emerald-900 mt-1" id="stat-clients-debtors">0</h3>
+                        </div>
+                        <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
+                            <i data-lucide="users" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                    <div class="flex items-center justify-between border-b pb-3">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="file-text" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Estado de Cuentas por Comprador (Facturas y Créditos)</span>
+                        </h3>
+                        <span class="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">Actualización Automática</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
+                                    <th class="py-2.5 px-4 font-bold">Fecha / ID Cuenta</th>
+                                    <th class="py-2.5 px-4 font-bold">Comprador</th>
+                                    <th class="py-2.5 px-4 font-bold">Concepto / Venta</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Valor Total</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Abonado</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Saldo Pendiente</th>
+                                    <th class="py-2.5 px-4 font-bold text-center">Estado</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="client-accounts-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- VISTA MÓDULO 2: POS VENTAS -->
-            <div id="view-ventas" class="space-y-6">
+            <div id="view-ventas" class="hidden space-y-6">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="lg:col-span-2 space-y-6">
                         <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100">
@@ -200,19 +255,19 @@
                                     </h3>
                                     <span class="text-xs bg-emerald-900 text-emerald-300 px-2 py-1 rounded-md font-mono" id="current-date"></span>
                                 </div>
-                                <div id="cart-items" class="space-y-3 max-h-56 overflow-y-auto pr-1">
-                                    <p class="text-emerald-400/60 text-center text-sm py-8">No has agregado productos.</p>
+                                <div id="cart-items" class="space-y-3 max-h-48 overflow-y-auto pr-1">
+                                    <p class="text-emerald-400/60 text-center text-sm py-6">No has agregado productos.</p>
                                 </div>
                             </div>
 
                             <div class="border-t border-emerald-800 pt-4 mt-4 space-y-3">
                                 <div class="flex justify-between items-center text-lg font-bold">
-                                    <span class="text-emerald-300">TOTAL:</span>
+                                    <span class="text-emerald-300">TOTAL VENTA:</span>
                                     <span class="text-2xl font-black text-white" id="cart-total">$0</span>
                                 </div>
 
                                 <div class="space-y-1">
-                                    <label class="block text-xs font-bold text-emerald-300 uppercase">Método de Pago</label>
+                                    <label class="block text-xs font-bold text-emerald-300 uppercase">Método de Pago Principal</label>
                                     <select id="payment-method" class="w-full bg-emerald-900 border border-emerald-700 rounded-xl p-2.5 text-white font-bold text-sm focus:ring-2 focus:ring-emerald-400 focus:outline-none">
                                         <option value="Efectivo">Efectivo</option>
                                         <option value="Nequi">Nequi (Transferencia)</option>
@@ -220,13 +275,16 @@
                                 </div>
 
                                 <div class="space-y-1">
-                                    <label class="block text-xs font-bold text-emerald-300 uppercase">Dinero Recibido ($)</label>
+                                    <label class="block text-xs font-bold text-emerald-300 uppercase" id="label-received-amt">Dinero Recibido Hoy ($)</label>
                                     <input type="number" id="received-amount" oninput="calculateChange()" placeholder="0" class="w-full bg-emerald-900 border border-emerald-700 rounded-xl px-3 py-2 text-white font-mono font-bold text-lg focus:ring-2 focus:ring-emerald-400 focus:outline-none">
+                                    <p class="text-[10px] text-emerald-300">Si paga menos del total, la diferencia queda fiada. Si paga más, cubre la venta y abona a deudas anteriores.</p>
                                 </div>
+
                                 <div class="flex justify-between items-center text-sm font-semibold bg-emerald-900/60 p-2.5 rounded-xl">
-                                    <span class="text-emerald-300">Cambio:</span>
+                                    <span id="label-change-text" class="text-emerald-300">Cambio / Vueltas:</span>
                                     <span class="text-lg font-mono font-bold text-emerald-400" id="change-amount">$0</span>
                                 </div>
+
                                 <button onclick="processSaleAndPrint()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-black py-3 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 text-sm">
                                     <i data-lucide="printer" class="w-5 h-5"></i>
                                     <span>CONFIRMAR E IMPRIMIR TIRILLA</span>
@@ -242,7 +300,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Total Vendido Hoy</p>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Dinero Recibido Hoy (Caja)</p>
                             <h3 class="text-2xl font-black text-emerald-900 mt-1" id="stat-total-hoy">$0</h3>
                         </div>
                         <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
@@ -251,7 +309,7 @@
                     </div>
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Total por Nequi</p>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Recibido por Nequi</p>
                             <h3 class="text-2xl font-black text-sky-700 mt-1" id="stat-total-nequi">$0</h3>
                         </div>
                         <div class="p-3 bg-sky-100 text-sky-700 rounded-xl">
@@ -282,7 +340,7 @@
                     <div class="flex items-center justify-between border-b pb-3">
                         <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
                             <i data-lucide="receipt" class="w-5 h-5 text-emerald-600"></i>
-                            <span>Registro Detallado de Ventas Realizadas</span>
+                            <span>Registro de Dinero Recibido (Ventas y Abonos)</span>
                         </h3>
                         <button onclick="clearSalesHistory()" class="text-xs bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg transition-colors">
                             Limpiar Historial
@@ -294,9 +352,9 @@
                                 <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
                                     <th class="py-2.5 px-4 font-bold">Fecha / Hora</th>
                                     <th class="py-2.5 px-4 font-bold">Comprador</th>
-                                    <th class="py-2.5 px-4 font-bold">Productos Vendidos</th>
+                                    <th class="py-2.5 px-4 font-bold">Detalle / Concepto</th>
                                     <th class="py-2.5 px-4 font-bold">Método de Pago</th>
-                                    <th class="py-2.5 px-4 font-bold text-right">Total Venta</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Dinero Ingresado</th>
                                 </tr>
                             </thead>
                             <tbody id="sales-history-table-body"></tbody>
@@ -640,14 +698,13 @@
                                 <input type="date" id="yield-date" onchange="onYieldDateChange()" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
                             </div>
 
-                            <!-- Cuadro de resumen dinámico del Módulo 4 con control de disponibles -->
                             <div id="milk-pull-summary" class="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs space-y-1 text-sky-900">
                                 <p class="font-bold flex items-center gap-1"><i data-lucide="info" class="w-3.5 h-3.5"></i> Leche en Módulo 4:</p>
                                 <div id="milk-pull-details" class="font-mono text-slate-700">Selecciona una fecha para cargar la leche...</div>
                             </div>
 
                             <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Producto (Ej: Bloque Queso, Libras, Cuajada)</label>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Producto (Ej: Bloque Queso, Libras)</label>
                                 <input type="text" id="yield-product-name" required placeholder="Ej: Bloque Queso Pasteurizado" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold text-slate-900">
                             </div>
 
@@ -802,16 +859,20 @@
                 </table>
                 <div class="border-t border-black pt-2 space-y-1 font-bold">
                     <div class="flex justify-between text-sm">
-                        <span>TOTAL:</span>
+                        <span>TOTAL VENTA:</span>
                         <span id="receipt-total"></span>
                     </div>
                     <div class="flex justify-between text-[11px] font-normal">
-                        <span>Recibido:</span>
+                        <span>Dinero Ingresado:</span>
                         <span id="receipt-received"></span>
                     </div>
-                    <div class="flex justify-between text-[11px] font-normal">
-                        <span>Cambio:</span>
+                    <div class="flex justify-between text-[11px] font-normal" id="receipt-change-row">
+                        <span>Cambio / Vueltas:</span>
                         <span id="receipt-change"></span>
+                    </div>
+                    <div class="flex justify-between text-[11px] font-bold text-amber-700" id="receipt-debt-row">
+                        <span>Quedó Fiado:</span>
+                        <span id="receipt-debt"></span>
                     </div>
                 </div>
                 <div class="text-center pt-3 text-[10px] text-slate-500">
@@ -830,7 +891,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=12 para forzar actualización de caché -->
-    <script type="module" src="./app.js?v=12"></script>
+    <!-- Script Principal con parámetro ?v=13 para forzar actualización de caché -->
+    <script type="module" src="./app.js?v=13"></script>
 </body>
 </html>
