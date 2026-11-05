@@ -595,12 +595,36 @@ function onYieldDateChange() {
     const litersInput = document.getElementById('yield-liters');
     const costInput = document.getElementById('yield-milk-cost');
     const detailsEl = document.getElementById('milk-pull-details');
+    const submitBtn = document.getElementById('yield-submit-btn');
 
     if (!dateVal) {
         litersInput.value = '';
         costInput.value = '';
         detailsEl.innerText = 'Selecciona una fecha de producción...';
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md";
+        }
         return;
+    }
+
+    // Verificar si esta fecha ya fue operada y registrada en los rendimientos
+    const alreadyProcessed = state.yieldLogs.some(y => y.date === dateVal);
+
+    if (alreadyProcessed) {
+        litersInput.value = 0;
+        costInput.value = 0;
+        detailsEl.innerHTML = `<span class="text-red-600 font-bold">🔒 La leche del ${dateVal} YA FUE OPERADA Y REGISTRADA. No se puede procesar nuevamente (Elimina el registro en el historial si necesitas corregirlo).</span>`;
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.className = "w-full bg-slate-300 text-slate-500 font-bold py-3 rounded-xl text-sm cursor-not-allowed";
+        }
+        return;
+    } else {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md";
+        }
     }
 
     const logsForDate = state.dailyMilkLogs.filter(l => l.date === dateVal);
@@ -639,6 +663,12 @@ function onYieldDateChange() {
 function addYieldLog(e) {
     e.preventDefault();
     const date = document.getElementById('yield-date').value;
+    
+    // Validar si ya existe un registro para esta fecha
+    if (state.yieldLogs.some(y => y.date === date)) {
+        return alert(`⚠️ La leche del ${date} ya fue operada y registrada previamente. No puedes registrarla de nuevo.`);
+    }
+
     const liters = parseFloat(document.getElementById('yield-liters').value) || 0;
     const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
     const cheeseKg = parseFloat(document.getElementById('yield-cheese-kg').value) || 0;
@@ -705,26 +735,37 @@ function renderYieldTable() {
     }
 
     state.yieldLogs.forEach(log => {
-        totalCantinasGeneral += log.cantinasExactas;
-        sumaPromedios += log.promedioKgCantina;
-        sumaGanancias += log.gananciaNetaLote;
+        // Valores seguros con respaldos por defecto (compatibilidad con datos antiguos)
+        const cantinasExactas = log.cantinasExactas || (log.liters ? log.liters / 40 : 0);
+        const cantinasText = log.cantinasText || `${cantinasExactas.toFixed(1)} cant`;
+        const cheeseKg = log.cheeseKg || 0;
+        const promedioKgCantina = log.promedioKgCantina || (cantinasExactas > 0 ? parseFloat((cheeseKg / cantinasExactas).toFixed(2)) : 0);
+        const milkCost = log.milkCost || 0;
+        const costoPorKilo = log.costoPorKilo || (cheeseKg > 0 ? parseFloat((milkCost / cheeseKg).toFixed(2)) : 0);
+        const salePricePerKg = log.salePricePerKg || 0;
+        const totalVentaLote = log.totalVentaLote || (cheeseKg * salePricePerKg);
+        const gananciaNetaLote = log.gananciaNetaLote !== undefined ? log.gananciaNetaLote : (totalVentaLote - milkCost);
 
-        // Meta estricta: >= 16.5 kg es Verde, < 16.5 kg es Rojo
-        const isGood = log.promedioKgCantina >= 16.5;
+        totalCantinasGeneral += cantinasExactas;
+        sumaPromedios += promedioKgCantina;
+        sumaGanancias += gananciaNetaLote;
+
+        // Meta estricta: >= 8.25 kg es Verde, < 8.25 kg es Rojo
+        const isGood = promedioKgCantina >= 8.25;
         const badgeColor = isGood ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700';
-        const profitColor = log.gananciaNetaLote >= 0 ? 'text-emerald-700 font-black' : 'text-red-600 font-black';
+        const profitColor = gananciaNetaLote >= 0 ? 'text-emerald-700 font-black' : 'text-red-600 font-black';
 
         tbody.innerHTML += `
             <tr class="border-b border-amber-50 hover:bg-amber-50/30">
                 <td class="py-3 px-4 font-mono text-xs text-slate-500">${log.date}</td>
-                <td class="py-3 px-4 font-bold text-slate-800">${log.cantinasText} <span class="text-[11px] text-slate-400">(${log.liters} L)</span></td>
-                <td class="py-3 px-4 font-mono font-bold text-slate-700">${log.cheeseKg} kg</td>
-                <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeColor}">${log.promedioKgCantina} kg/cant</span></td>
+                <td class="py-3 px-4 font-bold text-slate-800">${cantinasText} <span class="text-[11px] text-slate-400">(${log.liters || 0} L)</span></td>
+                <td class="py-3 px-4 font-mono font-bold text-slate-700">${cheeseKg} kg</td>
+                <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeColor}">${promedioKgCantina} kg/cant</span></td>
                 <td class="py-3 px-4 text-right font-mono text-xs">
-                    <span class="text-slate-500">Costo: $${log.costoPorKilo.toLocaleString('es-CO')}</span><br>
-                    <span class="text-emerald-800 font-bold">Venta: $${log.salePricePerKg.toLocaleString('es-CO')}</span>
+                    <span class="text-slate-500">Costo: $${costoPorKilo.toLocaleString('es-CO')}</span><br>
+                    <span class="text-emerald-800 font-bold">Venta: $${salePricePerKg.toLocaleString('es-CO')}</span>
                 </td>
-                <td class="py-3 px-4 text-right font-mono ${profitColor}">$${log.gananciaNetaLote.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono ${profitColor}">$${gananciaNetaLote.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right"><button onclick="deleteYieldLog(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
             </tr>`;
     });
@@ -735,8 +776,8 @@ function renderYieldTable() {
     const statPromedioEl = document.getElementById('stat-yield-promedio');
     statPromedioEl.innerText = `${promedioGeneral} kg / cant`;
     
-    // Color dinámico para la tarjeta de resumen del promedio general según la meta de 16.5 kg
-    if (promedioGeneral >= 16.5) {
+    // Color dinámico para la tarjeta de resumen del promedio general según la meta de 8.25 kg
+    if (promedioGeneral >= 8.25) {
         statPromedioEl.className = "text-2xl font-black text-emerald-700 mt-1";
     } else {
         statPromedioEl.className = "text-2xl font-black text-red-600 mt-1";
@@ -747,10 +788,11 @@ function renderYieldTable() {
 }
 
 function deleteYieldLog(id) {
-    if (confirm("¿Eliminar este registro de rendimiento?")) {
+    if (confirm("¿Eliminar este registro de rendimiento? Esto liberará la fecha para poder volver a procesarla.")) {
         state.yieldLogs = state.yieldLogs.filter(y => y.id !== id);
         saveData();
         renderYieldTable();
+        onYieldDateChange();
     }
 }
 
