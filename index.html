@@ -607,8 +607,8 @@
                     </div>
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Promedio Actual (Meta: 8.25kg)</p>
-                            <h3 class="text-2xl font-black text-emerald-700 mt-1" id="stat-yield-promedio">0 kg / cant</h3>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Promedio Actual (Según Meta Programada)</p>
+                            <h3 class="text-2xl font-black text-emerald-700 mt-1" id="stat-yield-promedio">0 / cant</h3>
                         </div>
                         <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
                             <i data-lucide="scale" class="w-6 h-6"></i>
@@ -632,43 +632,62 @@
                                 <i data-lucide="plus-circle" class="w-5 h-5 text-amber-600"></i>
                                 <span>Registrar Lote y Rendimiento</span>
                             </h3>
-                            <p class="text-xs text-slate-500 mt-1">La leche y su costo vienen automáticos del Módulo 4. Digita tu precio de venta.</p>
+                            <p class="text-xs text-slate-500 mt-1">Elige el producto, define tu propia meta y asigna los litros de la fecha.</p>
                         </div>
                         <form id="yield-form" onsubmit="addYieldLog(event)" class="space-y-3">
                             <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Procesamiento / Producción</label>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Procesamiento</label>
                                 <input type="date" id="yield-date" onchange="onYieldDateChange()" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
                             </div>
 
                             <!-- Cuadro de resumen dinámico del Módulo 4 -->
                             <div id="milk-pull-summary" class="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs space-y-1 text-sky-900">
-                                <p class="font-bold flex items-center gap-1"><i data-lucide="info" class="w-3.5 h-3.5"></i> Leche de Ruta (Módulo 4):</p>
+                                <p class="font-bold flex items-center gap-1"><i data-lucide="info" class="w-3.5 h-3.5"></i> Leche Disponible en Módulo 4:</p>
                                 <div id="milk-pull-details" class="font-mono text-slate-700">Selecciona una fecha para cargar la leche...</div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Producto / Lote</label>
+                                <input type="text" id="yield-product-name" required placeholder="Ej: Queso Bloque Pasteurizado, Cuajada Libras" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold text-slate-900">
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Litros (Auto)</label>
-                                    <input type="number" step="any" id="yield-liters" readonly class="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-sm font-bold text-slate-600 cursor-not-allowed">
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Litros a Usar</label>
+                                    <input type="number" step="any" id="yield-liters" oninput="onYieldLitersInput()" required class="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-sm font-bold text-slate-900">
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Leche ($) (Auto)</label>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Leche ($)</label>
                                     <input type="number" id="yield-milk-cost" readonly class="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-sm font-bold text-slate-600 cursor-not-allowed">
                                 </div>
                             </div>
 
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Peso Total del Queso Obtenido (Kilos)</label>
-                                <input type="number" step="any" id="yield-cheese-kg" required placeholder="Ej: 85.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Presentación</label>
+                                    <select id="yield-type" onchange="handleYieldTypeChange()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                        <option value="kilos">Kilogramos (kg)</option>
+                                        <option value="libras">Libras (lb)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-emerald-900 uppercase mb-1" id="yield-target-label">Tu Meta / Promedio (kg/cant)</label>
+                                    <input type="number" step="any" id="yield-custom-target" required value="8.25" class="w-full bg-emerald-50/50 border border-emerald-300 rounded-xl p-2.5 text-sm font-bold text-emerald-950">
+                                </div>
                             </div>
 
                             <div>
-                                <label class="block text-xs font-bold text-amber-900 uppercase mb-1">Precio de Venta por Kilo ($)</label>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1" id="yield-weight-label">Peso Total Obtenido (Kilos)</label>
+                                <input type="number" step="any" id="yield-weight-val" required placeholder="Ej: 85.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-amber-900 uppercase mb-1" id="yield-price-label">Precio de Venta por Unidad ($)</label>
                                 <input type="number" id="yield-sale-price" required placeholder="Ej: 18000" class="w-full bg-amber-50/50 border border-amber-300 rounded-xl p-2.5 text-sm font-bold text-amber-950">
                             </div>
 
                             <button type="submit" id="yield-submit-btn" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
-                                Registrar Rendimiento y Ganancia
+                                Registrar Rendimiento de este Producto
                             </button>
                         </form>
                     </div>
@@ -677,19 +696,19 @@
                         <div class="flex justify-between items-center border-b pb-3">
                             <h3 class="font-bold text-amber-950 flex items-center space-x-2">
                                 <i data-lucide="scale" class="w-5 h-5 text-amber-600"></i>
-                                <span>Historial de Rendimientos y Márgenes</span>
+                                <span>Historial de Rendimientos y Márgenes por Producto</span>
                             </h3>
-                            <span class="text-xs font-bold bg-amber-50 text-amber-800 px-3 py-1 rounded-full border border-amber-200">Meta Óptima: 8.25 kg / Cantina</span>
+                            <span class="text-xs font-bold bg-amber-50 text-amber-800 px-3 py-1 rounded-full border border-amber-200">Metas Personalizadas por Lote</span>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-sm">
                                 <thead>
                                     <tr class="bg-amber-50 text-amber-900 border-b border-amber-100">
-                                        <th class="py-2.5 px-4 font-bold">Fecha</th>
+                                        <th class="py-2.5 px-4 font-bold">Fecha / Producto</th>
                                         <th class="py-2.5 px-4 font-bold">Cantinas</th>
-                                        <th class="py-2.5 px-4 font-bold">Queso (kg)</th>
-                                        <th class="py-2.5 px-4 font-bold">Promedio (kg/cant)</th>
-                                        <th class="py-2.5 px-4 font-bold text-right">Costo / Venta (kg)</th>
+                                        <th class="py-2.5 px-4 font-bold">Producción</th>
+                                        <th class="py-2.5 px-4 font-bold">Promedio / Meta</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Costo / Venta (Unit)</th>
                                         <th class="py-2.5 px-4 font-bold text-right">Ganancia Lote</th>
                                         <th class="py-2.5 px-4 font-bold text-right">Acción</th>
                                     </tr>
@@ -811,7 +830,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=9 para forzar actualización de caché -->
-    <script type="module" src="./app.js?v=9"></script>
+    <!-- Script Principal con parámetro ?v=11 para forzar actualización de caché -->
+    <script type="module" src="./app.js?v=11"></script>
 </body>
 </html>
