@@ -75,7 +75,7 @@ function loadSavedDataFromCloud() {
                 renderDailyMilkTable();
                 renderYieldTable();
                 renderMonthlyBalance();
-                onYieldDateChange(); // Actualizar datos automáticos del módulo 5 si la fecha está seleccionada
+                onYieldDateChange();
             }
         }
     });
@@ -603,7 +603,6 @@ function onYieldDateChange() {
         return;
     }
 
-    // Filtrar los registros del Módulo 4 (Acopio) para la fecha seleccionada
     const logsForDate = state.dailyMilkLogs.filter(l => l.date === dateVal);
 
     if (logsForDate.length === 0) {
@@ -632,7 +631,7 @@ function onYieldDateChange() {
     costInput.value = totalCost;
 
     detailsEl.innerHTML = `
-        <p class="font-bold text-emerald-950">📦 Total Acopiado: <b>${totalLiters} L</b> (${cantinasEnteras} cantinas ${sobrante > 0 ? '+ ' + sobrante + 'L' : ''}) | Costo: <b>$${totalCost.toLocaleString('es-CO')}</b></p>
+        <p class="font-bold text-emerald-950">📦 Total Acopiado: <b>${totalLiters} L</b> (${cantinasEnteras} cantinas ${sobrante > 0 ? '+ ' + sobrante + 'L' : ''}) | Costo Leche: <b>$${totalCost.toLocaleString('es-CO')}</b></p>
         ${breakdownHTML}
     `;
 }
@@ -643,8 +642,11 @@ function addYieldLog(e) {
     const liters = parseFloat(document.getElementById('yield-liters').value) || 0;
     const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
     const cheeseKg = parseFloat(document.getElementById('yield-cheese-kg').value) || 0;
+    const salePricePerKg = parseFloat(document.getElementById('yield-sale-price').value) || 0;
 
-    if (!date || liters <= 0 || milkCost <= 0 || cheeseKg <= 0) return alert('Verifica que la fecha seleccionada tenga leche acopiada en el Módulo 4 y que ingreses el peso del queso.');
+    if (!date || liters <= 0 || milkCost <= 0 || cheeseKg <= 0 || salePricePerKg <= 0) {
+        return alert('Verifica que la fecha tenga leche en el Módulo 4 y que ingreses el peso del queso y tu precio de venta por kilo.');
+    }
 
     // Regla: 1 Cantina = 40 Litros
     const cantinas = parseFloat((liters / 40).toFixed(2));
@@ -654,8 +656,12 @@ function addYieldLog(e) {
     // Promedio kg por cantina
     const promedioKgCantina = cantinas > 0 ? parseFloat((cheeseKg / cantinas).toFixed(2)) : 0;
     
-    // Costo de producción por kilo de queso
+    // Costo de producción por kilo
     const costoPorKilo = parseFloat((milkCost / cheeseKg).toFixed(2));
+
+    // Valor total de venta y ganancia neta del lote
+    const totalVentaLote = cheeseKg * salePricePerKg;
+    const gananciaNetaLote = totalVentaLote - milkCost;
 
     state.yieldLogs.unshift({
         id: Date.now(),
@@ -666,7 +672,10 @@ function addYieldLog(e) {
         milkCost,
         cheeseKg,
         promedioKgCantina,
-        costoPorKilo
+        costoPorKilo,
+        salePricePerKg,
+        totalVentaLote,
+        gananciaNetaLote
     });
 
     saveData();
@@ -674,7 +683,7 @@ function addYieldLog(e) {
     document.getElementById('yield-date').valueAsDate = new Date();
     onYieldDateChange();
     renderYieldTable();
-    alert(`¡Rendimiento calculado con éxito!\nPromedio: ${promedioKgCantina} kg/cantina\nCosto: $${costoPorKilo.toLocaleString('es-CO')} / kg`);
+    alert(`¡Rendimiento y costos calculados!\nPromedio: ${promedioKgCantina} kg/cantina\nCosto Prod: $${costoPorKilo.toLocaleString('es-CO')}/kg\nGanancia Lote: $${gananciaNetaLote.toLocaleString('es-CO')}`);
 }
 
 function renderYieldTable() {
@@ -684,25 +693,26 @@ function renderYieldTable() {
 
     let totalCantinasGeneral = 0;
     let sumaPromedios = 0;
-    let sumaCostos = 0;
+    let sumaGanancias = 0;
     let count = state.yieldLogs.length;
 
     if (count === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-slate-400 font-medium">No hay registros de rendimiento.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-slate-400 font-medium">No hay registros de rendimiento.</td></tr>';
         document.getElementById('stat-yield-cantinas').innerText = '0 Cantinas';
         document.getElementById('stat-yield-promedio').innerText = '0 kg / cant';
-        document.getElementById('stat-yield-costo').innerText = '$0 / kg';
+        document.getElementById('stat-yield-profit').innerText = '$0';
         return;
     }
 
     state.yieldLogs.forEach(log => {
         totalCantinasGeneral += log.cantinasExactas;
         sumaPromedios += log.promedioKgCantina;
-        sumaCostos += log.costoPorKilo;
+        sumaGanancias += log.gananciaNetaLote;
 
-        // Meta óptima: 16.5 kg
+        // Meta estricta: >= 16.5 kg es Verde, < 16.5 kg es Rojo
         const isGood = log.promedioKgCantina >= 16.5;
         const badgeColor = isGood ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700';
+        const profitColor = log.gananciaNetaLote >= 0 ? 'text-emerald-700 font-black' : 'text-red-600 font-black';
 
         tbody.innerHTML += `
             <tr class="border-b border-amber-50 hover:bg-amber-50/30">
@@ -710,17 +720,30 @@ function renderYieldTable() {
                 <td class="py-3 px-4 font-bold text-slate-800">${log.cantinasText} <span class="text-[11px] text-slate-400">(${log.liters} L)</span></td>
                 <td class="py-3 px-4 font-mono font-bold text-slate-700">${log.cheeseKg} kg</td>
                 <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeColor}">${log.promedioKgCantina} kg/cant</span></td>
-                <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${log.costoPorKilo.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono text-xs">
+                    <span class="text-slate-500">Costo: $${log.costoPorKilo.toLocaleString('es-CO')}</span><br>
+                    <span class="text-emerald-800 font-bold">Venta: $${log.salePricePerKg.toLocaleString('es-CO')}</span>
+                </td>
+                <td class="py-3 px-4 text-right font-mono ${profitColor}">$${log.gananciaNetaLote.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right"><button onclick="deleteYieldLog(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
             </tr>`;
     });
 
     const promedioGeneral = parseFloat((sumaPromedios / count).toFixed(2));
-    const costoPromedio = Math.round(sumaCostos / count);
+    const promedioGanancia = Math.round(sumaGanancias / count);
+
+    const statPromedioEl = document.getElementById('stat-yield-promedio');
+    statPromedioEl.innerText = `${promedioGeneral} kg / cant`;
+    
+    // Color dinámico para la tarjeta de resumen del promedio general según la meta de 16.5 kg
+    if (promedioGeneral >= 16.5) {
+        statPromedioEl.className = "text-2xl font-black text-emerald-700 mt-1";
+    } else {
+        statPromedioEl.className = "text-2xl font-black text-red-600 mt-1";
+    }
 
     document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(1)} Cantinas`;
-    document.getElementById('stat-yield-promedio').innerText = `${promedioGeneral} kg / cant`;
-    document.getElementById('stat-yield-costo').innerText = `$${costoPromedio.toLocaleString('es-CO')} / kg`;
+    document.getElementById('stat-yield-profit').innerText = `$${promedioGanancia.toLocaleString('es-CO')}`;
 }
 
 function deleteYieldLog(id) {
