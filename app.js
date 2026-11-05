@@ -33,7 +33,7 @@ let state = {
     expenses: [], 
     milkProviders: [], 
     dailyMilkLogs: [], 
-    yieldLogs: [], // Nuevo arreglo para rendimiento de cantinas y costos
+    yieldLogs: [], 
     cart: []
 };
 
@@ -75,6 +75,7 @@ function loadSavedDataFromCloud() {
                 renderDailyMilkTable();
                 renderYieldTable();
                 renderMonthlyBalance();
+                onYieldDateChange(); // Actualizar datos automáticos del módulo 5 si la fecha está seleccionada
             }
         }
     });
@@ -588,7 +589,54 @@ function resetQuincena() {
     }
 }
 
-// MÓDULO 5: RENDIMIENTO, CANTINAS Y COSTOS DE PRODUCCIÓN
+// MÓDULO 5: RENDIMIENTO, CANTINAS Y COSTOS AUTOMÁTICOS DESDE ACOPIO
+function onYieldDateChange() {
+    const dateVal = document.getElementById('yield-date').value;
+    const litersInput = document.getElementById('yield-liters');
+    const costInput = document.getElementById('yield-milk-cost');
+    const detailsEl = document.getElementById('milk-pull-details');
+
+    if (!dateVal) {
+        litersInput.value = '';
+        costInput.value = '';
+        detailsEl.innerText = 'Selecciona una fecha de producción...';
+        return;
+    }
+
+    // Filtrar los registros del Módulo 4 (Acopio) para la fecha seleccionada
+    const logsForDate = state.dailyMilkLogs.filter(l => l.date === dateVal);
+
+    if (logsForDate.length === 0) {
+        litersInput.value = 0;
+        costInput.value = 0;
+        detailsEl.innerHTML = `<span class="text-red-600 font-bold">⚠️ No hay leche registrada en el Módulo 4 (Acopio) para el ${dateVal}. Ingresa los litros en el acopio primero.</span>`;
+        return;
+    }
+
+    let totalLiters = 0;
+    let totalCost = 0;
+    let breakdownHTML = '<ul class="list-disc pl-4 space-y-0.5 mt-1">';
+
+    logsForDate.forEach(l => {
+        const subCost = l.liters * l.pricePerLiter;
+        totalLiters += l.liters;
+        totalCost += subCost;
+        breakdownHTML += `<li><b>${l.providerName}:</b> ${l.liters} L x $${l.pricePerLiter.toLocaleString('es-CO')} = $${subCost.toLocaleString('es-CO')}</li>`;
+    });
+    breakdownHTML += '</ul>';
+
+    const cantinasEnteras = Math.floor(totalLiters / 40);
+    const sobrante = totalLiters % 40;
+
+    litersInput.value = totalLiters;
+    costInput.value = totalCost;
+
+    detailsEl.innerHTML = `
+        <p class="font-bold text-emerald-950">📦 Total Acopiado: <b>${totalLiters} L</b> (${cantinasEnteras} cantinas ${sobrante > 0 ? '+ ' + sobrante + 'L' : ''}) | Costo: <b>$${totalCost.toLocaleString('es-CO')}</b></p>
+        ${breakdownHTML}
+    `;
+}
+
 function addYieldLog(e) {
     e.preventDefault();
     const date = document.getElementById('yield-date').value;
@@ -596,7 +644,7 @@ function addYieldLog(e) {
     const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
     const cheeseKg = parseFloat(document.getElementById('yield-cheese-kg').value) || 0;
 
-    if (!date || liters <= 0 || milkCost <= 0 || cheeseKg <= 0) return alert('Completa todos los campos correctamente.');
+    if (!date || liters <= 0 || milkCost <= 0 || cheeseKg <= 0) return alert('Verifica que la fecha seleccionada tenga leche acopiada en el Módulo 4 y que ingreses el peso del queso.');
 
     // Regla: 1 Cantina = 40 Litros
     const cantinas = parseFloat((liters / 40).toFixed(2));
@@ -624,8 +672,9 @@ function addYieldLog(e) {
     saveData();
     document.getElementById('yield-form').reset();
     document.getElementById('yield-date').valueAsDate = new Date();
+    onYieldDateChange();
     renderYieldTable();
-    alert(`¡Lote registrado! Rendimiento: ${promedioKgCantina} kg/cantina. Costo: $${costoPorKilo.toLocaleString('es-CO')} / kg.`);
+    alert(`¡Rendimiento calculado con éxito!\nPromedio: ${promedioKgCantina} kg/cantina\nCosto: $${costoPorKilo.toLocaleString('es-CO')} / kg`);
 }
 
 function renderYieldTable() {
@@ -1113,6 +1162,7 @@ function switchModule(modName) {
     if (modName === 'vehiculos') {
         const yieldDateInput = document.getElementById('yield-date');
         if (yieldDateInput && !yieldDateInput.value) yieldDateInput.valueAsDate = new Date();
+        onYieldDateChange();
         renderYieldTable();
     }
 }
@@ -1148,5 +1198,6 @@ window.openConfigModal = openConfigModal;
 window.closeConfigModal = closeConfigModal;
 window.saveCompanyName = saveCompanyName;
 window.logout = logout;
+window.onYieldDateChange = onYieldDateChange;
 window.addYieldLog = addYieldLog;
 window.deleteYieldLog = deleteYieldLog;

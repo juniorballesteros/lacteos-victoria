@@ -598,7 +598,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-amber-100 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Total Cantinas (Ayer)</p>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Total Cantinas Acopiadas</p>
                             <h3 class="text-2xl font-black text-amber-900 mt-1" id="stat-yield-cantinas">0 Cantinas</h3>
                         </div>
                         <div class="p-3 bg-amber-100 text-amber-800 rounded-xl">
@@ -630,27 +630,38 @@
                         <div class="border-b pb-3">
                             <h3 class="font-bold text-amber-950 flex items-center space-x-2">
                                 <i data-lucide="plus-circle" class="w-5 h-5 text-amber-600"></i>
-                                <span>Registrar Lote de Producción y Queso</span>
+                                <span>Registrar Lote y Rendimiento</span>
                             </h3>
-                            <p class="text-xs text-slate-500 mt-1">Calcula el rendimiento por cantina y el costo real por kilo fabricado.</p>
+                            <p class="text-xs text-slate-500 mt-1">La leche y su costo se cargan automáticamente del Módulo 4 según la fecha.</p>
                         </div>
                         <form id="yield-form" onsubmit="addYieldLog(event)" class="space-y-3">
                             <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Producción</label>
-                                <input type="date" id="yield-date" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Procesamiento / Producción</label>
+                                <input type="date" id="yield-date" onchange="onYieldDateChange()" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
                             </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Total Litros de Leche Usados</label>
-                                <input type="number" step="any" id="yield-liters" required placeholder="Ej: 200 (Equivalente a 5 cantinas)" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+
+                            <!-- Cuadro de resumen dinámico del Módulo 4 -->
+                            <div id="milk-pull-summary" class="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs space-y-1 text-sky-900">
+                                <p class="font-bold flex items-center gap-1"><i data-lucide="info" class="w-3.5 h-3.5"></i> Leche de Ruta (Módulo 4):</p>
+                                <div id="milk-pull-details" class="font-mono text-slate-700">Selecciona una fecha para cargar la leche...</div>
                             </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Total de esa Leche ($)</label>
-                                <input type="number" id="yield-milk-cost" required placeholder="Ej: 420000" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Litros (Automático)</label>
+                                    <input type="number" step="any" id="yield-liters" readonly class="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-sm font-bold text-slate-600 cursor-not-allowed">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Leche ($) (Auto)</label>
+                                    <input type="number" id="yield-milk-cost" readonly class="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-sm font-bold text-slate-600 cursor-not-allowed">
+                                </div>
                             </div>
+
                             <div>
                                 <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Peso Total del Queso Obtenido (Kilos)</label>
                                 <input type="number" step="any" id="yield-cheese-kg" required placeholder="Ej: 85.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
                             </div>
+
                             <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
                                 Calcular Rendimiento y Costo
                             </button>
@@ -794,7 +805,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=6 para forzar actualización de caché -->
-    <script type="module" src="./app.js?v=6"></script>
+    <!-- Script Principal con parámetro ?v=7 para forzar actualización de caché -->
+    <script type="module" src="./app.js?v=7"></script>
 </body>
 </html>
