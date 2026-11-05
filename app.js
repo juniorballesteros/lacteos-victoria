@@ -822,7 +822,7 @@ function processSaleAndPrint() {
     state.salesHistory.unshift({
         id: Date.now(),
         date: new Date().toLocaleString('es-CO'),
-        rawDate: getLocalDateString(), // Corregido con hora local
+        rawDate: getLocalDateString(),
         clientName: client.name,
         paymentMethod,
         items: [...state.cart],
@@ -864,7 +864,7 @@ function renderSalesHistory() {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    const todayStr = getLocalDateString(); // Corregido con hora local
+    const todayStr = getLocalDateString();
     let totalVendidoHoy = 0, totalNequiHoy = 0, totalEfectivoHoy = 0, totalGastosHoy = 0;
 
     state.salesHistory.forEach(sale => {
@@ -1034,6 +1034,7 @@ window.addDailyProduction = addDailyProduction;
 window.deleteProduct = deleteProduct;
 window.editProductPrice = editProductPrice;
 window.promptSellProduct = promptSellProduct;
+window.calculateChange = calculateChange; // <--- Exportación agregada para que funcione el cambio
 window.processSaleAndPrint = processSaleAndPrint;
 window.clearSalesHistory = clearSalesHistory;
 window.closeReceiptModal = closeReceiptModal;
