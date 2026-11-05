@@ -33,6 +33,7 @@ let state = {
     expenses: [], 
     milkProviders: [], 
     dailyMilkLogs: [], 
+    yieldLogs: [], // Nuevo arreglo para rendimiento de cantinas y costos
     cart: []
 };
 
@@ -60,6 +61,7 @@ function loadSavedDataFromCloud() {
             state.expenses = parsed.expenses || [];
             state.milkProviders = parsed.milkProviders || [];
             state.dailyMilkLogs = parsed.dailyMilkLogs || [];
+            state.yieldLogs = parsed.yieldLogs || [];
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
@@ -71,6 +73,7 @@ function loadSavedDataFromCloud() {
                 renderMilkProvidersSelect();
                 renderProvidersTable();
                 renderDailyMilkTable();
+                renderYieldTable();
                 renderMonthlyBalance();
             }
         }
@@ -88,7 +91,8 @@ function saveData() {
         salesHistory: state.salesHistory,
         expenses: state.expenses,
         milkProviders: state.milkProviders,
-        dailyMilkLogs: state.dailyMilkLogs
+        dailyMilkLogs: state.dailyMilkLogs,
+        yieldLogs: state.yieldLogs
     };
     
     set(ref(db, STORAGE_KEY), dataToSave).catch((error) => {
@@ -243,6 +247,7 @@ function handleAuthSubmit(e) {
     renderMilkProvidersSelect();
     renderProvidersTable();
     renderDailyMilkTable();
+    renderYieldTable();
     renderMonthlyBalance();
     if (window.lucide) lucide.createIcons();
 }
@@ -580,6 +585,100 @@ function resetQuincena() {
         renderDailyMilkTable();
         renderProvidersTable();
         alert("¡Quincena reiniciada!");
+    }
+}
+
+// MÓDULO 5: RENDIMIENTO, CANTINAS Y COSTOS DE PRODUCCIÓN
+function addYieldLog(e) {
+    e.preventDefault();
+    const date = document.getElementById('yield-date').value;
+    const liters = parseFloat(document.getElementById('yield-liters').value) || 0;
+    const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
+    const cheeseKg = parseFloat(document.getElementById('yield-cheese-kg').value) || 0;
+
+    if (!date || liters <= 0 || milkCost <= 0 || cheeseKg <= 0) return alert('Completa todos los campos correctamente.');
+
+    // Regla: 1 Cantina = 40 Litros
+    const cantinas = parseFloat((liters / 40).toFixed(2));
+    const cantinasEnteras = Math.floor(liters / 40);
+    const litrosSobrantes = liters % 40;
+    
+    // Promedio kg por cantina
+    const promedioKgCantina = cantinas > 0 ? parseFloat((cheeseKg / cantinas).toFixed(2)) : 0;
+    
+    // Costo de producción por kilo de queso
+    const costoPorKilo = parseFloat((milkCost / cheeseKg).toFixed(2));
+
+    state.yieldLogs.unshift({
+        id: Date.now(),
+        date,
+        liters,
+        cantinasText: `${cantinasEnteras} cant${litrosSobrantes > 0 ? ' + ' + litrosSobrantes + 'L' : ''}`,
+        cantinasExactas: cantinas,
+        milkCost,
+        cheeseKg,
+        promedioKgCantina,
+        costoPorKilo
+    });
+
+    saveData();
+    document.getElementById('yield-form').reset();
+    document.getElementById('yield-date').valueAsDate = new Date();
+    renderYieldTable();
+    alert(`¡Lote registrado! Rendimiento: ${promedioKgCantina} kg/cantina. Costo: $${costoPorKilo.toLocaleString('es-CO')} / kg.`);
+}
+
+function renderYieldTable() {
+    const tbody = document.getElementById('yield-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    let totalCantinasGeneral = 0;
+    let sumaPromedios = 0;
+    let sumaCostos = 0;
+    let count = state.yieldLogs.length;
+
+    if (count === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-slate-400 font-medium">No hay registros de rendimiento.</td></tr>';
+        document.getElementById('stat-yield-cantinas').innerText = '0 Cantinas';
+        document.getElementById('stat-yield-promedio').innerText = '0 kg / cant';
+        document.getElementById('stat-yield-costo').innerText = '$0 / kg';
+        return;
+    }
+
+    state.yieldLogs.forEach(log => {
+        totalCantinasGeneral += log.cantinasExactas;
+        sumaPromedios += log.promedioKgCantina;
+        sumaCostos += log.costoPorKilo;
+
+        // Meta óptima: 16.5 kg
+        const isGood = log.promedioKgCantina >= 16.5;
+        const badgeColor = isGood ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700';
+
+        tbody.innerHTML += `
+            <tr class="border-b border-amber-50 hover:bg-amber-50/30">
+                <td class="py-3 px-4 font-mono text-xs text-slate-500">${log.date}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${log.cantinasText} <span class="text-[11px] text-slate-400">(${log.liters} L)</span></td>
+                <td class="py-3 px-4 font-mono font-bold text-slate-700">${log.cheeseKg} kg</td>
+                <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeColor}">${log.promedioKgCantina} kg/cant</span></td>
+                <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${log.costoPorKilo.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right"><button onclick="deleteYieldLog(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
+            </tr>`;
+    });
+
+    const promedioGeneral = parseFloat((sumaPromedios / count).toFixed(2));
+    const costoPromedio = Math.round(sumaCostos / count);
+
+    document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(1)} Cantinas`;
+    document.getElementById('stat-yield-promedio').innerText = `${promedioGeneral} kg / cant`;
+    document.getElementById('stat-yield-costo').innerText = `$${costoPromedio.toLocaleString('es-CO')} / kg`;
+}
+
+function deleteYieldLog(id) {
+    if (confirm("¿Eliminar este registro de rendimiento?")) {
+        state.yieldLogs = state.yieldLogs.filter(y => y.id !== id);
+        saveData();
+        renderYieldTable();
     }
 }
 
@@ -1010,6 +1109,12 @@ function switchModule(modName) {
             if (secReg) secReg.classList.remove('hidden');
         }
     }
+
+    if (modName === 'vehiculos') {
+        const yieldDateInput = document.getElementById('yield-date');
+        if (yieldDateInput && !yieldDateInput.value) yieldDateInput.valueAsDate = new Date();
+        renderYieldTable();
+    }
 }
 
 // EXPORTAR FUNCIONES AL ÁMBITO GLOBAL
@@ -1034,7 +1139,7 @@ window.addDailyProduction = addDailyProduction;
 window.deleteProduct = deleteProduct;
 window.editProductPrice = editProductPrice;
 window.promptSellProduct = promptSellProduct;
-window.calculateChange = calculateChange; // <--- Exportación agregada para que funcione el cambio
+window.calculateChange = calculateChange;
 window.processSaleAndPrint = processSaleAndPrint;
 window.clearSalesHistory = clearSalesHistory;
 window.closeReceiptModal = closeReceiptModal;
@@ -1043,3 +1148,5 @@ window.openConfigModal = openConfigModal;
 window.closeConfigModal = closeConfigModal;
 window.saveCompanyName = saveCompanyName;
 window.logout = logout;
+window.addYieldLog = addYieldLog;
+window.deleteYieldLog = deleteYieldLog;

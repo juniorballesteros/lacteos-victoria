@@ -135,9 +135,9 @@
                     <i data-lucide="droplet" class="w-4 h-4 text-sky-600"></i>
                     <span>Módulo 4: Acopio de Leche</span>
                 </button>
-                <button onclick="switchModule('vehiculos')" id="mod-btn-vehiculos" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap opacity-60">
-                    <i data-lucide="truck" class="w-4 h-4"></i>
-                    <span>Módulo 5: Flota/Carros</span>
+                <button onclick="switchModule('vehiculos')" id="mod-btn-vehiculos" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
+                    <i data-lucide="scale" class="w-4 h-4 text-amber-600"></i>
+                    <span>Módulo 5: Rendimiento y Costos</span>
                 </button>
                 <button onclick="switchModule('contabilidad')" id="mod-btn-contabilidad" class="mod-btn text-slate-500 font-medium px-4 py-2 text-sm flex items-center space-x-2 whitespace-nowrap hover:text-emerald-700 transition-colors">
                     <i data-lucide="calculator" class="w-4 h-4"></i>
@@ -593,6 +593,97 @@
                 </div>
             </div>
 
+            <!-- VISTA MÓDULO 5: RENDIMIENTO, CANTINAS Y COSTOS -->
+            <div id="view-vehiculos" class="hidden space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-amber-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Total Cantinas (Ayer)</p>
+                            <h3 class="text-2xl font-black text-amber-900 mt-1" id="stat-yield-cantinas">0 Cantinas</h3>
+                        </div>
+                        <div class="p-3 bg-amber-100 text-amber-800 rounded-xl">
+                            <i data-lucide="database" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Promedio Actual (Meta: 16.5kg)</p>
+                            <h3 class="text-2xl font-black text-emerald-700 mt-1" id="stat-yield-promedio">0 kg / cant</h3>
+                        </div>
+                        <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
+                            <i data-lucide="scale" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Costo Promedio de Producción</p>
+                            <h3 class="text-2xl font-black text-slate-900 mt-1" id="stat-yield-costo">$0 / kg</h3>
+                        </div>
+                        <div class="p-3 bg-slate-100 text-slate-800 rounded-xl">
+                            <i data-lucide="dollar-sign" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-amber-100 space-y-4">
+                        <div class="border-b pb-3">
+                            <h3 class="font-bold text-amber-950 flex items-center space-x-2">
+                                <i data-lucide="plus-circle" class="w-5 h-5 text-amber-600"></i>
+                                <span>Registrar Lote de Producción y Queso</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-1">Calcula el rendimiento por cantina y el costo real por kilo fabricado.</p>
+                        </div>
+                        <form id="yield-form" onsubmit="addYieldLog(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Producción</label>
+                                <input type="date" id="yield-date" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Total Litros de Leche Usados</label>
+                                <input type="number" step="any" id="yield-liters" required placeholder="Ej: 200 (Equivalente a 5 cantinas)" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Total de esa Leche ($)</label>
+                                <input type="number" id="yield-milk-cost" required placeholder="Ej: 420000" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Peso Total del Queso Obtenido (Kilos)</label>
+                                <input type="number" step="any" id="yield-cheese-kg" required placeholder="Ej: 85.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                            </div>
+                            <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md">
+                                Calcular Rendimiento y Costo
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-amber-100 space-y-4">
+                        <div class="flex justify-between items-center border-b pb-3">
+                            <h3 class="font-bold text-amber-950 flex items-center space-x-2">
+                                <i data-lucide="scale" class="w-5 h-5 text-amber-600"></i>
+                                <span>Historial de Rendimientos por Lote</span>
+                            </h3>
+                            <span class="text-xs font-bold bg-amber-50 text-amber-800 px-3 py-1 rounded-full border border-amber-200">Meta Óptima: 16.5 kg / Cantina</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead>
+                                    <tr class="bg-amber-50 text-amber-900 border-b border-amber-100">
+                                        <th class="py-2.5 px-4 font-bold">Fecha</th>
+                                        <th class="py-2.5 px-4 font-bold">Cantinas (Leche)</th>
+                                        <th class="py-2.5 px-4 font-bold">Queso (kg)</th>
+                                        <th class="py-2.5 px-4 font-bold">Promedio (kg/cant)</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Costo x Kilo</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="yield-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- VISTA MÓDULO 6: BALANCE MENSUAL -->
             <div id="view-contabilidad" class="hidden space-y-6">
                 <div class="bg-white rounded-2xl p-6 shadow-sm border border-emerald-100 space-y-6">
@@ -703,7 +794,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=5 para forzar actualización de caché -->
-    <script type="module" src="./app.js?v=5"></script>
+    <!-- Script Principal con parámetro ?v=6 para forzar actualización de caché -->
+    <script type="module" src="./app.js?v=6"></script>
 </body>
 </html>
