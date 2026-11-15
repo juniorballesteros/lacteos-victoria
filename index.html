@@ -175,6 +175,42 @@
                     </div>
                 </div>
 
+                <!-- FORMULARIO PARA REGISTRAR DEUDAS ANTERIORES / SALDOS INICIALES -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                    <div class="border-b pb-3">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="plus-circle" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Registrar Deuda de Meses Anteriores (Saldo Inicial)</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-1">Agrega deudas antiguas de clientes para poner al día los saldos pendientes previos a la app.</p>
+                    </div>
+                    <form id="past-debt-form" onsubmit="addPastDebt(event)" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Comprador</label>
+                            <select id="past-debt-client-select" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                <option value="">-- Selecciona cliente --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de la Deuda</label>
+                            <input type="date" id="past-debt-date" required class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto / Detalle</label>
+                            <input type="text" id="past-debt-concept" required placeholder="Ej: Saldo pendiente mes pasado" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Valor Pendiente ($)</label>
+                            <input type="number" id="past-debt-amount" required placeholder="500000" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                        </div>
+                        <div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-sm transition-all shadow-md">
+                                Guardar Deuda
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
                 <!-- SECCIÓN 1: RESUMEN CONSOLIDADO POR CLIENTE -->
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
                     <div class="flex items-center justify-between border-b pb-3">
@@ -957,7 +993,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=18 para forzar actualización -->
-    <script type="module" src="./app.js?v=18"></script>
+    <!-- Script Principal con parámetro ?v=19 para forzar actualización -->
+    <script type="module" src="./app.js?v=19"></script>
 </body>
 </html>

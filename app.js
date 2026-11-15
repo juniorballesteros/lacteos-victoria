@@ -69,6 +69,7 @@ function loadSavedDataFromCloud() {
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
+                renderPastDebtClientSelect();
                 renderProductsPOS();
                 renderInventoryTable();
                 renderProductionHistory();
@@ -121,6 +122,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (titleEl) titleEl.innerText = state.companyName;
     if (appNameEl) appNameEl.innerText = state.companyName;
     if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
+
+    const pastDebtDateEl = document.getElementById('past-debt-date');
+    if (pastDebtDateEl) pastDebtDateEl.valueAsDate = new Date();
 });
 
 function updateDateDisplay() {
@@ -238,6 +242,7 @@ function handleAuthSubmit(e) {
     applyUserRoleInterface();
 
     renderClientSelect();
+    renderPastDebtClientSelect();
     renderProductsPOS();
     renderInventoryTable();
     renderProductionHistory();
@@ -302,6 +307,7 @@ function saveClient() {
     state.clients.push({ id: Date.now(), name, phone });
     saveData();
     renderClientSelect();
+    renderPastDebtClientSelect();
 
     document.getElementById('client-select').value = state.clients[state.clients.length - 1].id;
     document.getElementById('new-client-name').value = '';
@@ -316,6 +322,50 @@ function renderClientSelect() {
     state.clients.forEach(c => {
         select.innerHTML += `<option value="${c.id}">${c.name} ${c.phone ? '(' + c.phone + ')' : ''}</option>`;
     });
+}
+
+function renderPastDebtClientSelect() {
+    const select = document.getElementById('past-debt-client-select');
+    if (!select) return;
+    select.innerHTML = '<option value="">-- Selecciona cliente --</option>';
+    state.clients.forEach(c => {
+        select.innerHTML += `<option value="${c.id}">${c.name} ${c.phone ? '(' + c.phone + ')' : ''}</option>`;
+    });
+}
+
+function addPastDebt(e) {
+    e.preventDefault();
+    const clientId = document.getElementById('past-debt-client-select').value;
+    const dateVal = document.getElementById('past-debt-date').value;
+    const concept = document.getElementById('past-debt-concept').value.trim();
+    const amount = parseFloat(document.getElementById('past-debt-amount').value) || 0;
+
+    if (!clientId || !dateVal || !concept || amount <= 0) {
+        alert("⚠️ Por favor completa todos los campos correctamente.");
+        return;
+    }
+
+    const client = state.clients.find(c => c.id == clientId);
+    if (!client) return;
+
+    state.clientDebts.push({
+        id: Date.now(),
+        clientId: client.id,
+        clientName: client.name,
+        date: dateVal,
+        concept: `Saldo Anterior: ${concept}`,
+        totalAmount: amount,
+        paidAmount: 0,
+        status: 'pendiente'
+    });
+
+    saveData();
+    document.getElementById('past-debt-form').reset();
+    const dateInput = document.getElementById('past-debt-date');
+    if (dateInput) dateInput.valueAsDate = new Date();
+    
+    renderClientAccountsTable();
+    alert("✅ Deuda histórica registrada con éxito.");
 }
 
 // MÓDULO 1: CUENTAS POR COBRAR (RESUMEN + HISTORIAL DETALLADO DE FACTURAS)
@@ -338,7 +388,6 @@ function renderClientAccountsTable() {
         return;
     }
 
-    // 1. Agrupar por cliente para la tabla resumen superior
     const clientSummaryMap = {};
     state.clientDebts.forEach(debt => {
         const saldo = Math.max(0, debt.totalAmount - debt.paidAmount);
@@ -361,7 +410,6 @@ function renderClientAccountsTable() {
         }
     });
 
-    // Renderizar Tabla Resumen Superior
     Object.values(clientSummaryMap).forEach(summary => {
         const statusBadge = summary.saldoPendiente === 0 
             ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Al Día / Cancelado</span>'
@@ -377,7 +425,6 @@ function renderClientAccountsTable() {
             </tr>`;
     });
 
-    // 2. Renderizar Tabla Detallada por Fechas (Más recientes arriba o cronológico)
     const sortedDebts = [...state.clientDebts].sort((a, b) => b.id - a.id);
 
     sortedDebts.forEach(debt => {
@@ -1381,7 +1428,6 @@ function processSaleAndPrint() {
         montoFiado = totalVenta - dineroRecibido;
         dineroEntraCaja = dineroRecibido;
 
-        // Se crea un registro de deuda individual para esta venta exacta con su fecha
         state.clientDebts.push({
             id: Date.now(),
             clientId: client.id,
@@ -1604,6 +1650,7 @@ function switchModule(modName) {
 
     if (modName === 'cuentas') {
         renderClientAccountsTable();
+        renderPastDebtClientSelect();
     }
 
     if (modName === 'leche') {
@@ -1642,6 +1689,8 @@ window.checkPasswordStrength = checkPasswordStrength;
 window.switchModule = switchModule;
 window.toggleNewClientForm = toggleNewClientForm;
 window.saveClient = saveClient;
+window.renderPastDebtClientSelect = renderPastDebtClientSelect;
+window.addPastDebt = addPastDebt;
 window.addExpense = addExpense;
 window.deleteExpense = deleteExpense;
 window.switchMilkTab = switchMilkTab;
