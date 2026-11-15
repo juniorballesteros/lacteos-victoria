@@ -39,10 +39,8 @@ let state = {
     cart: []
 };
 
-// Variable auxiliar para almacenar temporalmente los datos de leche de la fecha seleccionada
 let currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
 
-// FUNCIÓN AUXILIAR: Obtiene la fecha local exacta de Colombia (Evita error UTC)
 function getLocalDateString() {
     const now = new Date();
     const year = now.getFullYear();
@@ -51,7 +49,6 @@ function getLocalDateString() {
     return `${year}-${month}-${day}`;
 }
 
-// CARGAR DATOS DESDE LA NUBE EN TIEMPO REAL
 function loadSavedDataFromCloud() {
     const dbRef = ref(db, STORAGE_KEY);
     onValue(dbRef, (snapshot) => {
@@ -91,7 +88,6 @@ function loadSavedDataFromCloud() {
     });
 }
 
-// GUARDAR DATOS AUTOMÁTICAMENTE EN LA NUBE
 function saveData() {
     const dataToSave = {
         companyName: state.companyName,
@@ -113,7 +109,6 @@ function saveData() {
     });
 }
 
-// AL CARGAR LA PÁGINA
 document.addEventListener('DOMContentLoaded', () => {
     loadSavedDataFromCloud();
     if (window.lucide) lucide.createIcons();
@@ -134,7 +129,6 @@ function updateDateDisplay() {
     if (dateEl) dateEl.innerText = now.toLocaleDateString('es-CO');
 }
 
-// CONTROL DE LOGIN / REGISTRO
 function switchAuthTab(mode) {
     state.authMode = mode;
     const tabLogin = document.getElementById('tab-login');
@@ -296,7 +290,6 @@ function logout() {
     document.getElementById('auth-screen').classList.remove('hidden');
 }
 
-// CLIENTES
 function toggleNewClientForm() {
     document.getElementById('new-client-form').classList.toggle('hidden');
 }
@@ -325,36 +318,75 @@ function renderClientSelect() {
     });
 }
 
-// MÓDULO 1: CUENTAS POR COBRAR / FIADOS
+// MÓDULO 1: CUENTAS POR COBRAR (RESUMEN + HISTORIAL DETALLADO DE FACTURAS)
 function renderClientAccountsTable() {
-    const tbody = document.getElementById('client-accounts-table-body');
-    if (!tbody) return;
-    tbody.innerHTML = '';
+    const summaryTbody = document.getElementById('client-summary-table-body');
+    const detailedTbody = document.getElementById('client-detailed-invoices-table-body');
+    if (!summaryTbody || !detailedTbody) return;
+
+    summaryTbody.innerHTML = '';
+    detailedTbody.innerHTML = '';
 
     let totalCarteraGeneral = 0;
     let debtorsSet = new Set();
 
     if (state.clientDebts.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-slate-400 font-medium">No hay cuentas por cobrar registradas. ¡Todos al día!</td></tr>';
+        summaryTbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay cuentas por cobrar registradas. ¡Todos al día!</td></tr>';
+        detailedTbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-slate-400 font-medium">No hay facturas registradas.</td></tr>';
         document.getElementById('stat-total-deudas').innerText = '$0';
         document.getElementById('stat-clients-debtors').innerText = '0';
         return;
     }
 
-    state.clientDebts.sort((a, b) => a.id - b.id);
-
+    // 1. Agrupar por cliente para la tabla resumen superior
+    const clientSummaryMap = {};
     state.clientDebts.forEach(debt => {
-        const saldoPendiente = Math.max(0, debt.totalAmount - debt.paidAmount);
-        if (saldoPendiente > 0) {
-            totalCarteraGeneral += saldoPendiente;
+        const saldo = Math.max(0, debt.totalAmount - debt.paidAmount);
+        if (!clientSummaryMap[debt.clientId]) {
+            clientSummaryMap[debt.clientId] = {
+                clientName: debt.clientName,
+                totalFiado: 0,
+                totalAbonado: 0,
+                saldoPendiente: 0,
+                hasPending: false
+            };
+        }
+        clientSummaryMap[debt.clientId].totalFiado += debt.totalAmount;
+        clientSummaryMap[debt.clientId].totalAbonado += debt.paidAmount;
+        clientSummaryMap[debt.clientId].saldoPendiente += saldo;
+        if (saldo > 0) {
+            clientSummaryMap[debt.clientId].hasPending = true;
+            totalCarteraGeneral += saldo;
             debtorsSet.add(debt.clientId);
         }
+    });
 
+    // Renderizar Tabla Resumen Superior
+    Object.values(clientSummaryMap).forEach(summary => {
+        const statusBadge = summary.saldoPendiente === 0 
+            ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Al Día / Cancelado</span>'
+            : '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Tiene Saldo Pendiente</span>';
+
+        summaryTbody.innerHTML += `
+            <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
+                <td class="py-3 px-4 font-bold text-slate-900">${summary.clientName}</td>
+                <td class="py-3 px-4 text-right font-mono font-bold text-slate-800">$${summary.totalFiado.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono text-emerald-700">$${summary.totalAbonado.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${summary.saldoPendiente.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-center">${statusBadge}</td>
+            </tr>`;
+    });
+
+    // 2. Renderizar Tabla Detallada por Fechas (Más recientes arriba o cronológico)
+    const sortedDebts = [...state.clientDebts].sort((a, b) => b.id - a.id);
+
+    sortedDebts.forEach(debt => {
+        const saldoPendiente = Math.max(0, debt.totalAmount - debt.paidAmount);
         const statusBadge = debt.status === 'pagado' 
             ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Cancelado</span>'
             : '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Pendiente</span>';
 
-        tbody.innerHTML += `
+        detailedTbody.innerHTML += `
             <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
                 <td class="py-3 px-4 font-mono text-xs text-slate-500">${debt.date}</td>
                 <td class="py-3 px-4 font-bold text-slate-900">${debt.clientName}</td>
@@ -364,7 +396,7 @@ function renderClientAccountsTable() {
                 <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${saldoPendiente.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-center">${statusBadge}</td>
                 <td class="py-3 px-4 text-right space-x-1">
-                    ${saldoPendiente > 0 ? `<button onclick="promptPayDebt(${debt.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded-lg shadow-sm">Abonar</button>` : ''}
+                    ${saldoPendiente > 0 ? `<button onclick="promptPaySpecificDebt(${debt.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded-lg shadow-sm">Abonar Factura</button>` : ''}
                     <button onclick="deleteDebtRecord(${debt.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button>
                 </td>
             </tr>`;
@@ -374,14 +406,22 @@ function renderClientAccountsTable() {
     document.getElementById('stat-clients-debtors').innerText = debtorsSet.size;
 }
 
-function promptPayDebt(debtId) {
+function promptPaySpecificDebt(debtId) {
     const debt = state.clientDebts.find(d => d.id === debtId);
     if (!debt) return;
     const saldo = debt.totalAmount - debt.paidAmount;
-    const inputAbono = prompt(`Registrar abono para ${debt.clientName} (Saldo pendiente: $${saldo.toLocaleString('es-CO')}):`, saldo);
+    
+    const inputAbono = prompt(`Abonar a factura de ${debt.clientName} (${debt.date} - ${debt.concept})\nSaldo pendiente de esta factura: $${saldo.toLocaleString('es-CO')}\n\nIngresa el valor del abono:`, saldo);
     if (inputAbono === null) return;
     const abono = parseFloat(inputAbono);
-    if (isNaN(abono) || abono <= 0) return;
+    if (isNaN(abono) || abono <= 0) {
+        alert("⚠️ Ingresa un valor válido mayor a 0.");
+        return;
+    }
+    if (abono > saldo) {
+        alert(`⚠️ El abono no puede superar el saldo pendiente de esta factura ($${saldo.toLocaleString('es-CO')}).`);
+        return;
+    }
 
     const metP = prompt("Método de ingreso del abono (Efectivo / Nequi):", "Efectivo") || "Efectivo";
 
@@ -396,7 +436,7 @@ function promptPayDebt(debtId) {
         rawDate: getLocalDateString(),
         clientName: debt.clientName,
         paymentMethod: metP,
-        items: [{ name: `Abono a Cuenta (${debt.date})`, saleType: 'unidad', units: 1, price: abono }],
+        items: [{ name: `Abono a Factura (${debt.date} - ${debt.concept})`, saleType: 'unidad', units: 1, price: abono }],
         total: abono,
         isAbono: true
     });
@@ -408,14 +448,13 @@ function promptPayDebt(debtId) {
 }
 
 function deleteDebtRecord(id) {
-    if (confirm("¿Eliminar este registro de cuenta por cobrar?")) {
+    if (confirm("¿Estás seguro de eliminar este registro de cuenta por cobrar?")) {
         state.clientDebts = state.clientDebts.filter(d => d.id !== id);
         saveData();
         renderClientAccountsTable();
     }
 }
 
-// GASTOS
 function addExpense(e) {
     e.preventDefault();
     const date = document.getElementById('exp-date-entry').value;
@@ -465,7 +504,6 @@ function deleteExpense(id) {
     }
 }
 
-// MÓDULO 4: ACOPIO DE LECHE
 function switchMilkTab(tabName) {
     const secReg = document.getElementById('milk-section-registro');
     const secProv = document.getElementById('milk-section-proveedores');
@@ -744,7 +782,6 @@ function resetQuincena() {
     }
 }
 
-// MÓDULO 5: RENDIMIENTO Y COSTOS
 function handleYieldTypeChange() {
     const type = document.getElementById('yield-type').value;
     const weightLabel = document.getElementById('yield-weight-label');
@@ -1070,7 +1107,6 @@ function deleteYieldLog(id) {
     }
 }
 
-// PRODUCCIÓN Y POS
 function handleSaleTypeChange() {
     const saleType = document.getElementById('prod-sale-type').value;
     const groupBlocks = document.getElementById('group-blocks');
@@ -1312,8 +1348,14 @@ function calculateChange() {
 
 function processSaleAndPrint() {
     const clientId = document.getElementById('client-select').value;
-    if (!clientId) return;
-    if (state.cart.length === 0) return;
+    if (!clientId) {
+        alert("⚠️ Por favor selecciona un comprador en la sección '1. Seleccionar Comprador'.");
+        return;
+    }
+    if (state.cart.length === 0) {
+        alert("⚠️ El resumen de venta está vacío. Agrega al menos un producto.");
+        return;
+    }
 
     const client = state.clients.find(c => c.id == clientId);
     const paymentMethod = document.getElementById('payment-method').value;
@@ -1339,12 +1381,13 @@ function processSaleAndPrint() {
         montoFiado = totalVenta - dineroRecibido;
         dineroEntraCaja = dineroRecibido;
 
+        // Se crea un registro de deuda individual para esta venta exacta con su fecha
         state.clientDebts.push({
             id: Date.now(),
             clientId: client.id,
             clientName: client.name,
             date: new Date().toLocaleDateString('es-CO'),
-            concept: `Venta Directa (Fiado parcial)`,
+            concept: `Venta Directa (Factura Crédito)`,
             totalAmount: montoFiado,
             paidAmount: 0,
             status: 'pendiente'
@@ -1631,7 +1674,7 @@ window.onYieldLitersInput = onYieldLitersInput;
 window.handleYieldTypeChange = handleYieldTypeChange;
 window.addYieldLog = addYieldLog;
 window.deleteYieldLog = deleteYieldLog;
-window.promptPayDebt = promptPayDebt;
+window.promptPaySpecificDebt = promptPaySpecificDebt;
 window.deleteDebtRecord = deleteDebtRecord;
 window.renderMilkPaymentsTable = renderMilkPaymentsTable;
 window.deleteMilkPayment = deleteMilkPayment;

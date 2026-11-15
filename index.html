@@ -175,29 +175,55 @@
                     </div>
                 </div>
 
+                <!-- SECCIÓN 1: RESUMEN CONSOLIDADO POR CLIENTE -->
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
                     <div class="flex items-center justify-between border-b pb-3">
                         <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
-                            <i data-lucide="file-text" class="w-5 h-5 text-emerald-600"></i>
-                            <span>Estado de Cuentas por Comprador (Facturas y Créditos)</span>
+                            <i data-lucide="users" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Resumen de Cuentas por Comprador</span>
                         </h3>
-                        <span class="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">Actualización Automática</span>
+                        <span class="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">Consolidado General</span>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-sm">
                             <thead>
                                 <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
-                                    <th class="py-2.5 px-4 font-bold">Fecha / ID Cuenta</th>
                                     <th class="py-2.5 px-4 font-bold">Comprador</th>
-                                    <th class="py-2.5 px-4 font-bold">Concepto / Venta</th>
-                                    <th class="py-2.5 px-4 font-bold text-right">Valor Total</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Total Fiado Acumulado</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Total Abonado</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Saldo Pendiente Real</th>
+                                    <th class="py-2.5 px-4 font-bold text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="client-summary-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 2: HISTORIAL DETALLADO DE FACTURAS POR FECHAS -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                    <div class="flex items-center justify-between border-b pb-3">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="list-ordered" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Historial Detallado de Facturas y Créditos (Por Fechas)</span>
+                        </h3>
+                        <span class="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">Elige exactamente a qué factura abonar</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
+                                    <th class="py-2.5 px-4 font-bold">Fecha / ID</th>
+                                    <th class="py-2.5 px-4 font-bold">Comprador</th>
+                                    <th class="py-2.5 px-4 font-bold">Concepto / Detalle</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Valor Factura</th>
                                     <th class="py-2.5 px-4 font-bold text-right">Abonado</th>
                                     <th class="py-2.5 px-4 font-bold text-right">Saldo Pendiente</th>
                                     <th class="py-2.5 px-4 font-bold text-center">Estado</th>
-                                    <th class="py-2.5 px-4 font-bold text-right">Acción</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Acción Específica</th>
                                 </tr>
                             </thead>
-                            <tbody id="client-accounts-table-body"></tbody>
+                            <tbody id="client-detailed-invoices-table-body"></tbody>
                         </table>
                     </div>
                 </div>
@@ -931,7 +957,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=17 para forzar actualización de caché -->
-    <script type="module" src="./app.js?v=17"></script>
+    <!-- Script Principal con parámetro ?v=18 para forzar actualización -->
+    <script type="module" src="./app.js?v=18"></script>
 </body>
 </html>
