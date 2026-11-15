@@ -914,6 +914,31 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- HISTORIAL DETALLADO CONSOLIDADO POR MÓDULOS -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 space-y-4">
+                    <div class="flex items-center justify-between border-b pb-3">
+                        <h3 class="font-bold text-emerald-950 flex items-center space-x-2">
+                            <i data-lucide="list-tree" class="w-5 h-5 text-emerald-600"></i>
+                            <span>Historial Detallado Consolidado (Por Módulos y Movimientos)</span>
+                        </h3>
+                        <span class="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-200">Entradas y Salidas de Dinero</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="bg-emerald-50 text-emerald-900 border-b border-emerald-100">
+                                    <th class="py-2.5 px-4 font-bold">Fecha</th>
+                                    <th class="py-2.5 px-4 font-bold">Módulo / Origen</th>
+                                    <th class="py-2.5 px-4 font-bold">Detalle / Concepto</th>
+                                    <th class="py-2.5 px-4 font-bold">Tipo de Movimiento</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Valor ($)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monthly-detailed-transactions-body"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
@@ -993,7 +1018,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=19 para forzar actualización -->
-    <script type="module" src="./app.js?v=19"></script>
+    <!-- Script Principal con parámetro ?v=21 para forzar actualización -->
+    <script type="module" src="./app.js?v=21"></script>
 </body>
 </html>

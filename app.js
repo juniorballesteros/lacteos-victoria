@@ -365,6 +365,7 @@ function addPastDebt(e) {
     if (dateInput) dateInput.valueAsDate = new Date();
     
     renderClientAccountsTable();
+    renderMonthlyBalance();
     alert("✅ Deuda histórica registrada con éxito.");
 }
 
@@ -499,6 +500,7 @@ function deleteDebtRecord(id) {
         state.clientDebts = state.clientDebts.filter(d => d.id !== id);
         saveData();
         renderClientAccountsTable();
+        renderMonthlyBalance();
     }
 }
 
@@ -718,6 +720,7 @@ function deleteMilkPayment(id) {
         state.milkPayments = state.milkPayments.filter(p => p.id !== id);
         saveData();
         renderMilkPaymentsTable();
+        renderMonthlyBalance();
     }
 }
 
@@ -1572,21 +1575,90 @@ function renderSalesHistory() {
 
 function renderMonthlyBalance() {
     let totalVentasMes = 0, totalNequiMes = 0, totalGastosMes = 0;
+    let transactions = [];
+
+    // 1. Ventas y Abonos (Módulo 2 / Módulo 1)
     state.salesHistory.forEach(s => {
         totalVentasMes += s.total;
         if (s.paymentMethod === 'Nequi') totalNequiMes += s.total;
+        
+        const desc = s.isAbono 
+            ? s.items[0].name 
+            : s.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`).join(', ');
+
+        transactions.push({
+            date: s.rawDate || s.date,
+            module: s.isAbono ? 'Módulo 1: Cuentas por Cobrar' : 'Módulo 2: POS Ventas',
+            concept: `Comprador: ${s.clientName} — ${desc} (${s.paymentMethod})`,
+            type: 'Ingreso',
+            amount: s.total,
+            sortId: s.id || 0
+        });
     });
-    state.expenses.forEach(e => totalGastosMes += e.amount);
+
+    // 2. Pagos a Proveedores de Leche (Módulo 4: Acopio)
+    state.milkPayments.forEach(p => {
+        totalGastosMes += p.totalPaid;
+        transactions.push({
+            date: p.date,
+            module: 'Módulo 4: Acopio de Leche',
+            concept: `Pago Quincena a ${p.providerName}: ${p.liters} Litros @ $${(p.pricePerLiter || 0).toLocaleString('es-CO')}/L`,
+            type: 'Egreso',
+            amount: p.totalPaid,
+            sortId: p.id || 0
+        });
+    });
+
+    // 3. Gastos e Inversiones (Excluyendo duplicados de pagos de leche)
+    state.expenses.forEach(e => {
+        if (e.name.startsWith('Pago Quincena Leche')) return;
+
+        totalGastosMes += e.amount;
+        transactions.push({
+            date: e.date,
+            module: 'Módulo de Gastos / Inversión',
+            concept: e.name,
+            type: 'Egreso',
+            amount: e.amount,
+            sortId: e.id || 0
+        });
+    });
+
+    transactions.sort((a, b) => b.sortId - a.sortId);
 
     const mTotalSales = document.getElementById('monthly-total-sales');
     const mTotalNequi = document.getElementById('monthly-total-nequi');
     const mTotalExpenses = document.getElementById('monthly-total-expenses');
     const mNetProfit = document.getElementById('monthly-net-profit');
+    const detailedBody = document.getElementById('monthly-detailed-transactions-body');
 
     if (mTotalSales) mTotalSales.innerText = `$${totalVentasMes.toLocaleString('es-CO')}`;
     if (mTotalNequi) mTotalNequi.innerText = `$${totalNequiMes.toLocaleString('es-CO')}`;
     if (mTotalExpenses) mTotalExpenses.innerText = `-$${totalGastosMes.toLocaleString('es-CO')}`;
     if (mNetProfit) mNetProfit.innerText = `$${(totalVentasMes - totalGastosMes).toLocaleString('es-CO')}`;
+
+    if (detailedBody) {
+        detailedBody.innerHTML = '';
+        if (transactions.length === 0) {
+            detailedBody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay transacciones registradas en el mes.</td></tr>';
+        } else {
+            transactions.forEach(tx => {
+                const isIngreso = tx.type === 'Ingreso';
+                const badgeClass = isIngreso ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700';
+                const amountClass = isIngreso ? 'text-emerald-700 font-black' : 'text-red-600 font-black';
+                const sign = isIngreso ? '+' : '-';
+
+                detailedBody.innerHTML += `
+                    <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
+                        <td class="py-3 px-4 font-mono text-xs text-slate-500">${tx.date}</td>
+                        <td class="py-3 px-4 font-bold text-slate-900 text-xs">${tx.module}</td>
+                        <td class="py-3 px-4 text-slate-700 text-xs">${tx.concept}</td>
+                        <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeClass}">${tx.type}</span></td>
+                        <td class="py-3 px-4 text-right font-mono ${amountClass}">${sign}$${tx.amount.toLocaleString('es-CO')}</td>
+                    </tr>`;
+            });
+        }
+    }
 }
 
 function clearSalesHistory() {
@@ -1679,6 +1751,10 @@ function switchModule(modName) {
         onYieldDateChange();
         onYieldProductSelectChange();
         renderYieldTable();
+    }
+
+    if (modName === 'contabilidad') {
+        renderMonthlyBalance();
     }
 }
 
