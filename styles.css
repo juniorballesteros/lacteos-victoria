@@ -1,43 +1,136 @@
-/* Estilos generales y fuente de recibo estilo tirilla */
-.receipt-font {
-    font-family: 'Courier New', Courier, monospace;
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+:root {
+    font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
-/* Transición suave para botones de módulos */
-.mod-btn {
-    transition: all 0.2s ease-in-out;
+code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
 }
 
-/* Configuración especial para impresión en impresoras térmicas / portátiles */
+/* Fondo animado de alta tecnología para la pantalla de login */
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+#auth-screen {
+    background: linear-gradient(-45deg, #022c22, #064e3b, #047857, #0f172a);
+    background-size: 400% 400%;
+    animation: gradientShift 15s ease infinite;
+}
+
+/* ==========================================
+   ESTILOS PRO PARA TODO EL INTERIOR DEL SISTEMA
+   ========================================== */
+
+/* 1. Contenedores y Tarjetas (Glassmorphism de Ingeniería) */
+#main-app .bg-white, 
+#main-app div[class*="bg-white"] {
+    background: rgba(255, 255, 255, 0.94) !important;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(16, 185, 129, 0.15) !important;
+    box-shadow: 0 10px 30px -10px rgba(2, 44, 34, 0.05), 0 0 15px rgba(16, 185, 129, 0.03) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#main-app .bg-white:hover, 
+#main-app div[class*="bg-white"]:hover {
+    box-shadow: 0 15px 40px -10px rgba(2, 44, 34, 0.1), 0 0 20px rgba(16, 185, 129, 0.08) !important;
+    transform: translateY(-2px);
+}
+
+/* 2. Inputs, Selects y Campos de Texto (Estilo Terminal / Limpio) */
+input:not([type="checkbox"]):not([type="radio"]), select {
+    background-color: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 0.75rem !important;
+    transition: all 0.2s ease-in-out !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus, select:focus {
+    background-color: #ffffff !important;
+    border-color: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2) !important;
+    outline: none !important;
+}
+
+/* 3. Header Superior y Menú de Módulos (Glassmorphism Fijo) */
+header {
+    background: rgba(6, 78, 59, 0.92) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(52, 211, 153, 0.25);
+}
+
+nav#main-nav-modules {
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(16, 185, 129, 0.2) !important;
+}
+
+/* 4. Botones con Feedback Táctil y Sombra Pro */
+button {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+button:active {
+    transform: scale(0.97) !important;
+}
+
+/* 5. Tablas Ejecutivas de Alta Densidad */
+table th {
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
+table tbody tr {
+    transition: all 0.2s ease !important;
+}
+
+table tbody tr:hover {
+    background-color: rgba(236, 253, 245, 0.8) !important;
+    transform: scale(1.001);
+}
+
+/* 6. Scrollbars Personalizados Estilo Código */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Ajustes específicos para impresión de tirillas POS */
 @media print {
-    /* Ocultar toda la interfaz del sistema (menús, botones, fondos oscuros) */
     body * {
-        visibility: hidden !important;
+        visibility: hidden;
     }
-    
-    /* Mostrar únicamente el contenido de la tirilla */
-    #printable-receipt, #printable-receipt * {
-        visibility: visible !important;
+    #modal-receipt, #modal-receipt * {
+        visibility: visible;
     }
-    
-    /* Posicionar el recibo al inicio y adaptarlo al ancho del rollo de papel */
-    #printable-receipt {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 100% !important;
-        max-width: 76mm !important; /* Ancho optimizado para rollo de 80mm */
-        margin: 0 auto !important;
-        padding: 2mm !important;
+    #modal-receipt {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
         background: white !important;
-        color: black !important;
-        box-shadow: none !important;
-        border: none !important;
-    }
-
-    /* Forzar el tamaño de página físico al formato de rollo térmico (sin márgenes de carta) */
-    @page {
-        size: 80mm auto; /* Altura automática para que salga en una sola hoja continua */
-        margin: 0mm;
     }
 }
