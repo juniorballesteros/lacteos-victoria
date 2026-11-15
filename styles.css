@@ -1,22 +1,4 @@
-/* Estilos para tirilla térmica POS */
-@media print {
-    body * {
-        visibility: hidden;
-    }
-    #printable-receipt, #printable-receipt * {
-        visibility: visible;
-    }
-    #printable-receipt {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        margin: 0;
-        padding: 10px;
-        border: none;
-    }
-}
-
+/* Estilos generales y fuente de recibo estilo tirilla */
 .receipt-font {
     font-family: 'Courier New', Courier, monospace;
 }
@@ -24,4 +6,38 @@
 /* Transición suave para botones de módulos */
 .mod-btn {
     transition: all 0.2s ease-in-out;
+}
+
+/* Configuración especial para impresión en impresoras térmicas / portátiles */
+@media print {
+    /* Ocultar toda la interfaz del sistema (menús, botones, fondos oscuros) */
+    body * {
+        visibility: hidden !important;
+    }
+    
+    /* Mostrar únicamente el contenido de la tirilla */
+    #printable-receipt, #printable-receipt * {
+        visibility: visible !important;
+    }
+    
+    /* Posicionar el recibo al inicio y adaptarlo al ancho del rollo de papel */
+    #printable-receipt {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        max-width: 76mm !important; /* Ancho optimizado para rollo de 80mm */
+        margin: 0 auto !important;
+        padding: 2mm !important;
+        background: white !important;
+        color: black !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    /* Forzar el tamaño de página físico al formato de rollo térmico (sin márgenes de carta) */
+    @page {
+        size: 80mm auto; /* Altura automática para que salga en una sola hoja continua */
+        margin: 0mm;
+    }
 }
