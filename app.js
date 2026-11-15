@@ -33,7 +33,7 @@ let state = {
     expenses: [], 
     milkProviders: [], 
     dailyMilkLogs: [], 
-    milkPayments: [], // Historial detallado de pagos de leche a proveedores
+    milkPayments: [], 
     yieldLogs: [], 
     clientDebts: [], 
     cart: []
@@ -578,7 +578,6 @@ function payProviderQuincena(providerId) {
 
     const paymentDate = getLocalDateString();
 
-    // 1. Registrar en el historial específico de pagos de leche
     state.milkPayments.unshift({
         id: Date.now(),
         date: paymentDate,
@@ -588,7 +587,6 @@ function payProviderQuincena(providerId) {
         totalPaid: totalToPay
     });
 
-    // 2. Registrar en los gastos generales de la empresa (para que reste de la caja)
     state.expenses.unshift({
         id: Date.now() + 1,
         date: paymentDate,
@@ -596,7 +594,6 @@ function payProviderQuincena(providerId) {
         amount: totalToPay
     });
 
-    // 3. Limpiar los registros diarios liquidados de este proveedor
     state.dailyMilkLogs = state.dailyMilkLogs.filter(log => log.providerId !== prov.id);
     
     saveData();
@@ -806,18 +803,26 @@ function onYieldProductSelectChange() {
     updateYieldTopCardForSelectedProduct(nameInput.value);
 }
 
+// NUEVO: Se ejecuta al escribir en el cajón de texto del producto para actualizar el promedio superior en tiempo real
+function onYieldProductNameInput() {
+    const nameInput = document.getElementById('yield-product-name');
+    if (nameInput) {
+        updateYieldTopCardForSelectedProduct(nameInput.value);
+    }
+}
+
 function updateYieldTopCardForSelectedProduct(productName) {
     const statPromedioEl = document.getElementById('stat-yield-promedio');
     if (!statPromedioEl) return;
 
-    if (!productName) {
+    if (!productName || productName.trim() === '') {
         statPromedioEl.innerText = `0 / cant`;
         return;
     }
 
-    const searchKey = productName.toLowerCase();
+    const searchKey = productName.toLowerCase().trim();
     const logsOfProduct = state.yieldLogs.filter(l => {
-        const pName = (l.productName || '').toLowerCase();
+        const pName = (l.productName || '').toLowerCase().trim();
         return pName.includes(searchKey) || searchKey.includes(pName);
     });
     
@@ -1605,6 +1610,7 @@ window.saveCompanyName = saveCompanyName;
 window.logout = logout;
 window.onYieldDateChange = onYieldDateChange;
 window.onYieldProductSelectChange = onYieldProductSelectChange;
+window.onYieldProductNameInput = onYieldProductNameInput;
 window.onYieldLitersInput = onYieldLitersInput;
 window.handleYieldTypeChange = handleYieldTypeChange;
 window.addYieldLog = addYieldLog;
