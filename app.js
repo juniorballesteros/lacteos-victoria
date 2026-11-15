@@ -82,6 +82,7 @@ function loadSavedDataFromCloud() {
                 renderMonthlyBalance();
                 renderClientAccountsTable();
                 onYieldDateChange();
+                onYieldProductSelectChange();
             }
         }
     });
@@ -258,6 +259,7 @@ function handleAuthSubmit(e) {
     renderYieldTable();
     renderMonthlyBalance();
     renderClientAccountsTable();
+    onYieldProductSelectChange();
     if (window.lucide) lucide.createIcons();
 }
 
@@ -338,7 +340,6 @@ function renderClientAccountsTable() {
         return;
     }
 
-    // Ordenar de más antiguo a más nuevo para que cumpla el criterio de cobrar primero lo viejo
     state.clientDebts.sort((a, b) => a.id - b.id);
 
     state.clientDebts.forEach(debt => {
@@ -388,7 +389,6 @@ function promptPayDebt(debtId) {
         debt.status = 'pagado';
     }
 
-    // Registrar en historial de ingresos de caja (dinero recibido)
     state.salesHistory.unshift({
         id: Date.now(),
         date: new Date().toLocaleString('es-CO'),
@@ -714,6 +714,67 @@ function handleYieldTypeChange() {
     }
 }
 
+// NUEVO: Selector inteligente de producto en Módulo 5
+function onYieldProductSelectChange() {
+    const select = document.getElementById('yield-product-select');
+    const nameInput = document.getElementById('yield-product-name');
+    const typeSelect = document.getElementById('yield-type');
+    const targetInput = document.getElementById('yield-custom-target');
+    
+    if (!select || !nameInput) return;
+    
+    const val = select.value;
+    if (val === 'Personalizado') {
+        nameInput.value = '';
+        nameInput.focus();
+    } else {
+        nameInput.value = val;
+        if (val.includes('Libras')) {
+            typeSelect.value = 'libras';
+            targetInput.value = '16.5';
+        } else if (val.includes('Criollo')) {
+            typeSelect.value = 'kilos';
+            targetInput.value = '8.0';
+        } else if (val.includes('Pasteurizado')) {
+            typeSelect.value = 'kilos';
+            targetInput.value = '8.25';
+        } else if (val.includes('Cuajada')) {
+            typeSelect.value = 'kilos';
+            targetInput.value = '9.0';
+        } else {
+            typeSelect.value = 'kilos';
+            targetInput.value = '8.25';
+        }
+        handleYieldTypeChange();
+    }
+    updateYieldTopCardForSelectedProduct(nameInput.value);
+}
+
+// NUEVO: Actualiza la tarjeta superior de promedio según el producto seleccionado
+function updateYieldTopCardForSelectedProduct(productName) {
+    const statPromedioEl = document.getElementById('stat-yield-promedio');
+    if (!statPromedioEl) return;
+
+    if (!productName) {
+        statPromedioEl.innerText = `0 / cant`;
+        return;
+    }
+
+    const logsOfProduct = state.yieldLogs.filter(l => l.productName.toLowerCase() === productName.toLowerCase());
+    
+    if (logsOfProduct.length === 0) {
+        const targetInput = document.getElementById('yield-custom-target');
+        const unit = document.getElementById('yield-type').value === 'libras' ? 'lb/cant' : 'kg/cant';
+        statPromedioEl.innerText = `${targetInput ? targetInput.value : '0'} ${unit} (Meta)`;
+    } else {
+        let suma = 0;
+        logsOfProduct.forEach(l => suma += (l.promedioPorCantina || 0));
+        const promedioReal = (suma / logsOfProduct.length).toFixed(2);
+        const unit = logsOfProduct[0].yieldType === 'libras' ? 'lb/cant' : 'kg/cant';
+        statPromedioEl.innerText = `${promedioReal} ${unit}`;
+    }
+}
+
 function onYieldDateChange() {
     const dateVal = document.getElementById('yield-date').value;
     const litersInput = document.getElementById('yield-liters');
@@ -808,7 +869,8 @@ function onYieldLitersInput() {
 function addYieldLog(e) {
     e.preventDefault();
     const date = document.getElementById('yield-date').value;
-    const productName = document.getElementById('yield-product-name').value.trim();
+    const productNameInput = document.getElementById('yield-product-name');
+    const productName = productNameInput ? productNameInput.value.trim() : 'Queso';
     const liters = parseFloat(document.getElementById('yield-liters').value) || 0;
     const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
     const yieldType = document.getElementById('yield-type').value;
@@ -862,6 +924,7 @@ function addYieldLog(e) {
     document.getElementById('yield-type').value = 'kilos';
     handleYieldTypeChange();
     onYieldDateChange();
+    onYieldProductSelectChange();
     renderYieldTable();
     alert(`¡Rendimiento de "${productName}" registrado!\nPromedio: ${promedioPorCantina} ${yieldType === 'kilos' ? 'kg' : 'lb'}/cant (Meta: ${customTarget})`);
 }
@@ -878,12 +941,9 @@ function renderYieldTable() {
     if (count === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-slate-400 font-medium">No hay registros de rendimiento.</td></tr>';
         document.getElementById('stat-yield-cantinas').innerText = '0 Cantinas';
-        document.getElementById('stat-yield-promedio').innerText = '0 / cant';
         document.getElementById('stat-yield-profit').innerText = '$0';
         return;
     }
-
-    let sumaPromediosLogrados = 0;
 
     state.yieldLogs.forEach(log => {
         const cantinasExactas = log.cantinasExactas || (log.liters ? log.liters / 40 : 0);
@@ -901,7 +961,6 @@ function renderYieldTable() {
 
         totalCantinasGeneral += cantinasExactas;
         sumaGanancias += gananciaNetaLote;
-        sumaPromediosLogrados += promedioPorCantina;
 
         const isGood = promedioPorCantina >= customTarget;
         const badgeColor = isGood ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700';
@@ -929,14 +988,15 @@ function renderYieldTable() {
             </tr>`;
     });
 
-    const promedioGeneralLogrado = parseFloat((sumaPromediosLogrados / count).toFixed(2));
     const promedioGanancia = Math.round(sumaGanancias / count);
-    const statPromedioEl = document.getElementById('stat-yield-promedio');
-    statPromedioEl.innerText = `${promedioGeneralLogrado} promedio`;
-    statPromedioEl.className = "text-xl font-black text-emerald-700 mt-1";
-
     document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(1)} Cantinas`;
     document.getElementById('stat-yield-profit').innerText = `$${promedioGanancia.toLocaleString('es-CO')}`;
+    
+    // Refrescar tarjeta de promedio del producto seleccionado actualmente
+    const productNameInput = document.getElementById('yield-product-name');
+    if (productNameInput) {
+        updateYieldTopCardForSelectedProduct(productNameInput.value);
+    }
 }
 
 function deleteYieldLog(id) {
@@ -945,6 +1005,7 @@ function deleteYieldLog(id) {
         saveData();
         renderYieldTable();
         onYieldDateChange();
+        onYieldProductSelectChange();
     }
 }
 
@@ -1183,7 +1244,6 @@ function processSaleAndPrint() {
     const totalVenta = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
     const dineroRecibido = parseFloat(document.getElementById('received-amount').value) || 0;
 
-    // Descontar inventario de productos vendidos
     state.cart.forEach(item => {
         const product = state.products.find(p => p.id === item.id);
         if (product) {
@@ -1200,11 +1260,9 @@ function processSaleAndPrint() {
     let montoFiado = 0;
 
     if (dineroRecibido < totalVenta) {
-        // Parte de la venta queda fiada
         montoFiado = totalVenta - dineroRecibido;
         dineroEntraCaja = dineroRecibido;
 
-        // Registrar nueva cuenta por cobrar (deuda)
         state.clientDebts.push({
             id: Date.now(),
             clientId: client.id,
@@ -1216,11 +1274,9 @@ function processSaleAndPrint() {
             status: 'pendiente'
         });
     } else if (dineroRecibido > totalVenta) {
-        // Paga la venta completa y sobra para abonar a deudas viejas
         dineroEntraCaja = totalVenta;
         let excedenteAbono = dineroRecibido - totalVenta;
 
-        // Buscar deudas pendientes de este cliente y abonarles de la más antigua a la más nueva
         const clientPendings = state.clientDebts.filter(d => d.clientId == client.id && d.status === 'pendiente');
         clientPendings.sort((a, b) => a.id - b.id);
 
@@ -1237,11 +1293,9 @@ function processSaleAndPrint() {
             }
         }
     } else {
-        // Pago exacto
         dineroEntraCaja = totalVenta;
     }
 
-    // Registrar en historial de caja sólo el dinero real recibido que entra al negocio hoy
     if (dineroEntraCaja > 0) {
         state.salesHistory.unshift({
             id: Date.now(),
@@ -1257,7 +1311,6 @@ function processSaleAndPrint() {
 
     saveData();
 
-    // Mostrar tirilla
     document.getElementById('receipt-company').innerText = state.companyName.toUpperCase();
     document.getElementById('receipt-date').innerText = new Date().toLocaleString('es-CO');
     document.getElementById('receipt-client').innerText = client.name;
@@ -1455,6 +1508,7 @@ function switchModule(modName) {
         const yieldDateInput = document.getElementById('yield-date');
         if (yieldDateInput && !yieldDateInput.value) yieldDateInput.valueAsDate = new Date();
         onYieldDateChange();
+        onYieldProductSelectChange();
         renderYieldTable();
     }
 }
@@ -1491,6 +1545,7 @@ window.closeConfigModal = closeConfigModal;
 window.saveCompanyName = saveCompanyName;
 window.logout = logout;
 window.onYieldDateChange = onYieldDateChange;
+window.onYieldProductSelectChange = onYieldProductSelectChange;
 window.onYieldLitersInput = onYieldLitersInput;
 window.handleYieldTypeChange = handleYieldTypeChange;
 window.addYieldLog = addYieldLog;
