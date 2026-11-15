@@ -803,7 +803,6 @@ function onYieldProductSelectChange() {
     updateYieldTopCardForSelectedProduct(nameInput.value);
 }
 
-// NUEVO: Se ejecuta al escribir en el cajón de texto del producto para actualizar el promedio superior en tiempo real
 function onYieldProductNameInput() {
     const nameInput = document.getElementById('yield-product-name');
     if (nameInput) {
@@ -1264,15 +1263,31 @@ function renderCart() {
 
     cartContainer.innerHTML = '';
     let total = 0;
-    state.cart.forEach(item => {
+    state.cart.forEach((item, index) => {
         let itemTotal = item.saleType === 'kilos' ? (item.price * item.kilos) : (item.price * item.units);
         total += itemTotal;
         let desc = item.saleType === 'kilos' ? `${item.kilos}kg (${item.blocksEquivalent || 0} blq)` : `${item.units} und`;
-        cartContainer.innerHTML += `<div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white"><div><p class="font-bold">${item.name}</p><p class="text-emerald-300">${desc}</p></div><span class="font-bold font-mono">$${itemTotal.toLocaleString('es-CO')}</span></div>`;
+        
+        cartContainer.innerHTML += `
+            <div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white gap-2">
+                <div class="flex-1">
+                    <p class="font-bold">${item.name}</p>
+                    <p class="text-emerald-300">${desc} — <span class="font-mono font-bold">$${itemTotal.toLocaleString('es-CO')}</span></p>
+                </div>
+                <button onclick="removeFromCart(${index})" class="text-red-400 hover:text-red-300 bg-emerald-950/80 p-1.5 rounded-lg transition-colors" title="Eliminar producto">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                </button>
+            </div>`;
     });
 
     document.getElementById('cart-total').innerText = `$${total.toLocaleString('es-CO')}`;
     calculateChange();
+    if (window.lucide) lucide.createIcons();
+}
+
+function removeFromCart(index) {
+    state.cart.splice(index, 1);
+    renderCart();
 }
 
 function calculateChange() {
@@ -1599,6 +1614,7 @@ window.addDailyProduction = addDailyProduction;
 window.deleteProduct = deleteProduct;
 window.editProductPrice = editProductPrice;
 window.promptSellProduct = promptSellProduct;
+window.removeFromCart = removeFromCart;
 window.calculateChange = calculateChange;
 window.processSaleAndPrint = processSaleAndPrint;
 window.clearSalesHistory = clearSalesHistory;
