@@ -33,8 +33,9 @@ let state = {
     expenses: [], 
     milkProviders: [], 
     dailyMilkLogs: [], 
+    milkPayments: [], // Historial detallado de pagos de leche a proveedores
     yieldLogs: [], 
-    clientDebts: [], // Módulo 1: Cuentas por Cobrar / Créditos
+    clientDebts: [], 
     cart: []
 };
 
@@ -65,6 +66,7 @@ function loadSavedDataFromCloud() {
             state.expenses = parsed.expenses || [];
             state.milkProviders = parsed.milkProviders || [];
             state.dailyMilkLogs = parsed.dailyMilkLogs || [];
+            state.milkPayments = parsed.milkPayments || [];
             state.yieldLogs = parsed.yieldLogs || [];
             state.clientDebts = parsed.clientDebts || [];
 
@@ -77,6 +79,7 @@ function loadSavedDataFromCloud() {
                 renderExpensesTable();
                 renderMilkProvidersSelect();
                 renderProvidersTable();
+                renderMilkPaymentsTable();
                 renderDailyMilkTable();
                 renderYieldTable();
                 renderMonthlyBalance();
@@ -100,6 +103,7 @@ function saveData() {
         expenses: state.expenses,
         milkProviders: state.milkProviders,
         dailyMilkLogs: state.dailyMilkLogs,
+        milkPayments: state.milkPayments,
         yieldLogs: state.yieldLogs,
         clientDebts: state.clientDebts
     };
@@ -206,19 +210,14 @@ function handleAuthSubmit(e) {
         }
 
         if (password.length < 8 || !/[A-ZÁÉÍÓÚÑ]/.test(password) || !/[0-9]/.test(password)) {
-            alert('La contraseña debe cumplir con los requisitos mínimos de seguridad.');
             return;
         }
 
         const existingUser = state.registeredUsers.find(u => u.email === email);
-        if (existingUser) {
-            alert('Este correo ya está registrado.');
-            return;
-        }
+        if (existingUser) return;
 
         state.registeredUsers.push({ email, password, role: roleInput });
         saveData();
-        alert('¡Cuenta creada con éxito! Ahora ingresa con tus credenciales.');
         switchAuthTab('login');
         return;
     }
@@ -231,10 +230,7 @@ function handleAuthSubmit(e) {
         saveData();
     }
 
-    if (!foundUser) {
-        alert('Correo o contraseña incorrectos.');
-        return;
-    }
+    if (!foundUser) return;
 
     state.currentUserRole = foundUser.role;
     state.currentUserEmail = foundUser.email;
@@ -255,6 +251,7 @@ function handleAuthSubmit(e) {
     renderExpensesTable();
     renderMilkProvidersSelect();
     renderProvidersTable();
+    renderMilkPaymentsTable();
     renderDailyMilkTable();
     renderYieldTable();
     renderMonthlyBalance();
@@ -276,14 +273,18 @@ function applyUserRoleInterface() {
         switchModule('leche');
         switchMilkTab('registro');
         const tabProv = document.getElementById('milk-tab-proveedores');
+        const tabPagos = document.getElementById('milk-tab-pagos');
         if (tabProv) tabProv.classList.add('hidden');
+        if (tabPagos) tabPagos.classList.add('hidden');
     } else {
         if (navModules) navModules.classList.remove('hidden');
         if (headerRoleBadge) headerRoleBadge.innerText = 'Panel de Administración (Dueño)';
         if (configBtnTop) configBtnTop.classList.remove('hidden');
 
         const tabProv = document.getElementById('milk-tab-proveedores');
+        const tabPagos = document.getElementById('milk-tab-pagos');
         if (tabProv) tabProv.classList.remove('hidden');
+        if (tabPagos) tabPagos.classList.remove('hidden');
         switchModule('cuentas');
     }
 }
@@ -303,7 +304,7 @@ function toggleNewClientForm() {
 function saveClient() {
     const name = document.getElementById('new-client-name').value.trim();
     const phone = document.getElementById('new-client-phone').value.trim();
-    if (!name) return alert('Ingresa el nombre del comprador.');
+    if (!name) return;
 
     state.clients.push({ id: Date.now(), name, phone });
     saveData();
@@ -380,7 +381,7 @@ function promptPayDebt(debtId) {
     const inputAbono = prompt(`Registrar abono para ${debt.clientName} (Saldo pendiente: $${saldo.toLocaleString('es-CO')}):`, saldo);
     if (inputAbono === null) return;
     const abono = parseFloat(inputAbono);
-    if (isNaN(abono) || abono <= 0) return alert('Monto inválido.');
+    if (isNaN(abono) || abono <= 0) return;
 
     const metP = prompt("Método de ingreso del abono (Efectivo / Nequi):", "Efectivo") || "Efectivo";
 
@@ -404,7 +405,6 @@ function promptPayDebt(debtId) {
     renderClientAccountsTable();
     renderSalesHistory();
     renderMonthlyBalance();
-    alert(`¡Abono de $${abono.toLocaleString('es-CO')} registrado con éxito!`);
 }
 
 function deleteDebtRecord(id) {
@@ -422,7 +422,7 @@ function addExpense(e) {
     const name = document.getElementById('exp-name-entry').value.trim();
     const amount = parseFloat(document.getElementById('exp-amount-entry').value) || 0;
 
-    if (!date || !name || amount <= 0) return alert('Completa todos los datos.');
+    if (!date || !name || amount <= 0) return;
 
     state.expenses.unshift({ id: Date.now(), date, name, amount });
     saveData();
@@ -432,7 +432,6 @@ function addExpense(e) {
     renderExpensesTable();
     renderSalesHistory();
     renderMonthlyBalance();
-    alert(`Gasto "${name}" registrado.`);
 }
 
 function renderExpensesTable() {
@@ -470,37 +469,51 @@ function deleteExpense(id) {
 function switchMilkTab(tabName) {
     const secReg = document.getElementById('milk-section-registro');
     const secProv = document.getElementById('milk-section-proveedores');
+    const secPagos = document.getElementById('milk-section-pagos');
     const btnReg = document.getElementById('milk-tab-registro');
     const btnProv = document.getElementById('milk-tab-proveedores');
+    const btnPagos = document.getElementById('milk-tab-pagos');
 
     if (tabName === 'registro') {
         if (secReg) secReg.classList.remove('hidden');
         if (secProv) secProv.classList.add('hidden');
-        if (btnReg) btnReg.className = "px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all";
-        if (btnProv) btnProv.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all";
-    } else {
+        if (secPagos) secPagos.classList.add('hidden');
+        if (btnReg) btnReg.className = "px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all whitespace-nowrap";
+        if (btnProv) btnProv.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap";
+        if (btnPagos) btnPagos.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap";
+    } else if (tabName === 'proveedores') {
         if (state.currentUserRole === 'conductor') return;
         if (secReg) secReg.classList.add('hidden');
         if (secProv) secProv.classList.remove('hidden');
-        if (btnProv) btnProv.className = "px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all";
-        if (btnReg) btnReg.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all";
+        if (secPagos) secPagos.classList.add('hidden');
+        if (btnProv) btnProv.className = "px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all whitespace-nowrap";
+        if (btnReg) btnReg.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap";
+        if (btnPagos) btnPagos.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap";
+    } else if (tabName === 'pagos') {
+        if (state.currentUserRole === 'conductor') return;
+        if (secReg) secReg.classList.add('hidden');
+        if (secProv) secProv.classList.add('hidden');
+        if (secPagos) secPagos.classList.remove('hidden');
+        if (btnPagos) btnPagos.className = "px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all whitespace-nowrap";
+        if (btnReg) btnReg.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap";
+        if (btnProv) btnProv.className = "px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap";
+        renderMilkPaymentsTable();
     }
 }
 
 function addMilkProvider(e) {
     e.preventDefault();
-    if (state.currentUserRole === 'conductor') return alert('No autorizado.');
+    if (state.currentUserRole === 'conductor') return;
     const name = document.getElementById('prov-name').value.trim();
     const pricePerLiter = parseFloat(document.getElementById('prov-price').value) || 0;
 
-    if (!name || pricePerLiter <= 0) return alert('Ingresa nombre y precio.');
+    if (!name || pricePerLiter <= 0) return;
 
     state.milkProviders.push({ id: Date.now(), name, pricePerLiter });
     saveData();
     document.getElementById('provider-form').reset();
     renderMilkProvidersSelect();
     renderProvidersTable();
-    alert(`Proveedor "${name}" creado.`);
 }
 
 function renderMilkProvidersSelect() {
@@ -559,25 +572,71 @@ function payProviderQuincena(providerId) {
     });
 
     const totalToPay = totalLiters * prov.pricePerLiter;
-    if (totalToPay <= 0) return alert(`El proveedor ${prov.name} tiene $0 por pagar.`);
+    if (totalToPay <= 0) return;
 
     if (!confirm(`¿Pagar quincena a ${prov.name} por $${totalToPay.toLocaleString('es-CO')} (${totalLiters} L)?`)) return;
 
-    state.expenses.unshift({
+    const paymentDate = getLocalDateString();
+
+    // 1. Registrar en el historial específico de pagos de leche
+    state.milkPayments.unshift({
         id: Date.now(),
-        date: getLocalDateString(),
+        date: paymentDate,
+        providerName: prov.name,
+        liters: totalLiters,
+        pricePerLiter: prov.pricePerLiter,
+        totalPaid: totalToPay
+    });
+
+    // 2. Registrar en los gastos generales de la empresa (para que reste de la caja)
+    state.expenses.unshift({
+        id: Date.now() + 1,
+        date: paymentDate,
         name: `Pago Quincena Leche: ${prov.name} (${totalLiters} L)`,
         amount: totalToPay
     });
 
+    // 3. Limpiar los registros diarios liquidados de este proveedor
     state.dailyMilkLogs = state.dailyMilkLogs.filter(log => log.providerId !== prov.id);
+    
     saveData();
     renderProvidersTable();
+    renderMilkPaymentsTable();
     renderDailyMilkTable();
     renderExpensesTable();
     renderSalesHistory();
     renderMonthlyBalance();
-    alert(`¡Pago registrado a ${prov.name}!`);
+}
+
+function renderMilkPaymentsTable() {
+    const tbody = document.getElementById('milk-payments-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (state.milkPayments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-slate-400 font-medium">No hay pagos de leche registrados todavía.</td></tr>';
+        return;
+    }
+
+    state.milkPayments.forEach(payment => {
+        tbody.innerHTML += `
+            <tr class="border-b border-sky-50 hover:bg-sky-50/30">
+                <td class="py-3 px-4 font-mono text-xs text-slate-500">${payment.date}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${payment.providerName}</td>
+                <td class="py-3 px-4 font-mono text-sky-800 font-bold">${payment.liters} Litros</td>
+                <td class="py-3 px-4 font-mono text-slate-600">$${(payment.pricePerLiter || 0).toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">$${payment.totalPaid.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right"><button onclick="deleteMilkPayment(${payment.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
+            </tr>`;
+    });
+}
+
+function deleteMilkPayment(id) {
+    if (confirm("¿Eliminar este registro de pago de leche?")) {
+        state.milkPayments = state.milkPayments.filter(p => p.id !== id);
+        saveData();
+        renderMilkPaymentsTable();
+    }
 }
 
 function editProviderPrice(id) {
@@ -616,10 +675,10 @@ function addDailyMilk(e) {
     const providerId = parseInt(providerSelect.value);
     const liters = parseFloat(litersInput.value) || 0;
 
-    if (!date || !providerId || liters <= 0) return alert('Selecciona proveedor y cantidad.');
+    if (!date || !providerId || liters <= 0) return;
 
     const provider = state.milkProviders.find(p => p.id === providerId);
-    if (!provider) return alert('Proveedor no encontrado.');
+    if (!provider) return;
 
     state.dailyMilkLogs.unshift({
         id: Date.now(),
@@ -635,7 +694,6 @@ function addDailyMilk(e) {
     litersInput.value = '';
     renderDailyMilkTable();
     renderProvidersTable();
-    alert(`¡Registrados ${liters} L de ${provider.name}!`);
 }
 
 function renderDailyMilkTable() {
@@ -680,13 +738,12 @@ function deleteDailyMilk(id) {
 }
 
 function resetQuincena() {
-    if (state.currentUserRole === 'conductor') return alert('No autorizado.');
+    if (state.currentUserRole === 'conductor') return;
     if (confirm("¿Reiniciar quincena? Se limpiará el acumulado.")) {
         state.dailyMilkLogs = [];
         saveData();
         renderDailyMilkTable();
         renderProvidersTable();
-        alert("¡Quincena reiniciada!");
     }
 }
 
@@ -714,7 +771,6 @@ function handleYieldTypeChange() {
     }
 }
 
-// NUEVO: Selector inteligente de producto en Módulo 5
 function onYieldProductSelectChange() {
     const select = document.getElementById('yield-product-select');
     const nameInput = document.getElementById('yield-product-name');
@@ -729,16 +785,16 @@ function onYieldProductSelectChange() {
         nameInput.focus();
     } else {
         nameInput.value = val;
-        if (val.includes('Libras')) {
+        if (val.toLowerCase().includes('libra')) {
             typeSelect.value = 'libras';
             targetInput.value = '16.5';
-        } else if (val.includes('Criollo')) {
+        } else if (val.toLowerCase().includes('criollo')) {
             typeSelect.value = 'kilos';
             targetInput.value = '8.0';
-        } else if (val.includes('Pasteurizado')) {
+        } else if (val.toLowerCase().includes('pasteurizado')) {
             typeSelect.value = 'kilos';
             targetInput.value = '8.25';
-        } else if (val.includes('Cuajada')) {
+        } else if (val.toLowerCase().includes('cuajada')) {
             typeSelect.value = 'kilos';
             targetInput.value = '9.0';
         } else {
@@ -750,7 +806,6 @@ function onYieldProductSelectChange() {
     updateYieldTopCardForSelectedProduct(nameInput.value);
 }
 
-// NUEVO: Actualiza la tarjeta superior de promedio según el producto seleccionado
 function updateYieldTopCardForSelectedProduct(productName) {
     const statPromedioEl = document.getElementById('stat-yield-promedio');
     if (!statPromedioEl) return;
@@ -760,7 +815,11 @@ function updateYieldTopCardForSelectedProduct(productName) {
         return;
     }
 
-    const logsOfProduct = state.yieldLogs.filter(l => l.productName.toLowerCase() === productName.toLowerCase());
+    const searchKey = productName.toLowerCase();
+    const logsOfProduct = state.yieldLogs.filter(l => {
+        const pName = (l.productName || '').toLowerCase();
+        return pName.includes(searchKey) || searchKey.includes(pName);
+    });
     
     if (logsOfProduct.length === 0) {
         const targetInput = document.getElementById('yield-custom-target');
@@ -879,7 +938,7 @@ function addYieldLog(e) {
     const salePricePerUnit = parseFloat(document.getElementById('yield-sale-price').value) || 0;
 
     if (!date || !productName || liters <= 0 || milkCost <= 0 || totalWeight <= 0 || salePricePerUnit <= 0) {
-        return alert('Completa todos los campos obligatorios.');
+        return;
     }
 
     let totalLitersDay = 0;
@@ -888,9 +947,7 @@ function addYieldLog(e) {
     state.yieldLogs.forEach(y => { if (y.date === date) usedLitersDay += (y.liters || 0); });
     const remainingLiters = totalLitersDay - usedLitersDay;
 
-    if (liters > remainingLiters + 0.001) {
-        return alert(`⚠️ Estás asignando ${liters} L, pero solo quedan ${remainingLiters} L disponibles para el ${date}.`);
-    }
+    if (liters > remainingLiters + 0.001) return;
 
     const cantinasExactas = parseFloat((liters / 40).toFixed(2));
     const cantinasEnteras = Math.floor(liters / 40);
@@ -926,7 +983,6 @@ function addYieldLog(e) {
     onYieldDateChange();
     onYieldProductSelectChange();
     renderYieldTable();
-    alert(`¡Rendimiento de "${productName}" registrado!\nPromedio: ${promedioPorCantina} ${yieldType === 'kilos' ? 'kg' : 'lb'}/cant (Meta: ${customTarget})`);
 }
 
 function renderYieldTable() {
@@ -958,6 +1014,7 @@ function renderYieldTable() {
         const salePricePerUnit = log.salePricePerUnit || 0;
         const totalVentaLote = log.totalVentaLote || (totalWeight * salePricePerUnit);
         const gananciaNetaLote = log.gananciaNetaLote !== undefined ? log.gananciaNetaLote : (totalVentaLote - milkCost);
+        const gananciaUnitaria = salePricePerUnit - costoPorUnidad;
 
         totalCantinasGeneral += cantinasExactas;
         sumaGanancias += gananciaNetaLote;
@@ -980,8 +1037,9 @@ function renderYieldTable() {
                     <span class="text-[10px] text-slate-500 font-mono mt-0.5 inline-block">Meta: ${customTarget}</span>
                 </td>
                 <td class="py-3 px-4 text-right font-mono text-xs">
-                    <span class="text-slate-500">Costo: $${costoPorUnidad.toLocaleString('es-CO')}</span><br>
-                    <span class="text-emerald-800 font-bold">Venta: $${salePricePerUnit.toLocaleString('es-CO')}</span>
+                    <span class="text-slate-500">Costo Unit: $${costoPorUnidad.toLocaleString('es-CO')}</span><br>
+                    <span class="text-emerald-800 font-bold">Venta Unit: $${salePricePerUnit.toLocaleString('es-CO')}</span><br>
+                    <span class="text-sky-700 font-extrabold">Ganancia Unit: +$${gananciaUnitaria.toLocaleString('es-CO')} / ${unitLabel}</span>
                 </td>
                 <td class="py-3 px-4 text-right font-mono ${profitColor}">$${gananciaNetaLote.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right"><button onclick="deleteYieldLog(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
@@ -992,7 +1050,6 @@ function renderYieldTable() {
     document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(1)} Cantinas`;
     document.getElementById('stat-yield-profit').innerText = `$${promedioGanancia.toLocaleString('es-CO')}`;
     
-    // Refrescar tarjeta de promedio del producto seleccionado actualmente
     const productNameInput = document.getElementById('yield-product-name');
     if (productNameInput) {
         updateYieldTopCardForSelectedProduct(productNameInput.value);
@@ -1034,14 +1091,14 @@ function addDailyProduction(e) {
     const price = parseFloat(document.getElementById('prod-price-entry').value) || 0;
     const date = document.getElementById('prod-date-entry').value;
 
-    if (!productName || price <= 0 || !date) return alert('Completa todos los campos.');
+    if (!productName || price <= 0 || !date) return;
 
     let product = state.products.find(p => p.name.toLowerCase() === productName.toLowerCase());
 
     if (saleType === 'kilos') {
         const blocks = parseFloat(document.getElementById('prod-blocks-entry').value) || 0;
         const kilos = parseFloat(document.getElementById('prod-kilos-entry').value) || 0;
-        if (kilos <= 0) return alert('Ingresa los kilos.');
+        if (kilos <= 0) return;
 
         if (product) {
             product.blocks = (product.blocks || 0) + blocks;
@@ -1054,7 +1111,7 @@ function addDailyProduction(e) {
         state.productionLogs.unshift({ id: Date.now(), productName, detail: `+${blocks} blq / +${kilos} kg`, date });
     } else {
         const stockUnits = parseFloat(document.getElementById('prod-units-entry').value) || 0;
-        if (stockUnits <= 0) return alert('Ingresa unidades.');
+        if (stockUnits <= 0) return;
 
         if (product) {
             product.stockUnits = (product.stockUnits || 0) + stockUnits;
@@ -1073,7 +1130,6 @@ function addDailyProduction(e) {
     renderInventoryTable();
     renderProductsPOS();
     renderProductionHistory();
-    alert(`¡Producto "${productName}" registrado!`);
 }
 
 function renderInventoryTable() {
@@ -1173,7 +1229,7 @@ function promptSellProduct(productId) {
         const inputKilos = prompt(`¿Cuántos kilos de "${product.name}" vas a vender? (Stock: ${product.kilos} kg):`, "1");
         if (inputKilos === null) return;
         const kilosToSell = parseFloat(inputKilos);
-        if (isNaN(kilosToSell) || kilosToSell <= 0 || kilosToSell > product.kilos) return alert('Cantidad inválida.');
+        if (isNaN(kilosToSell) || kilosToSell <= 0 || kilosToSell > product.kilos) return;
 
         const inputBlocks = prompt(`¿Cuántos bloques físicos equivalentes se entregan? (Stock: ${product.blocks || 0} blq):`, "1");
         const blocksToSell = inputBlocks !== null ? parseFloat(inputBlocks) || 0 : 0;
@@ -1183,7 +1239,7 @@ function promptSellProduct(productId) {
         const inputUnits = prompt(`¿Cuántas unidades de "${product.name}" vas a vender? (Stock: ${product.stockUnits}):`, "1");
         if (inputUnits === null) return;
         const unitsToSell = parseFloat(inputUnits);
-        if (isNaN(unitsToSell) || unitsToSell <= 0 || unitsToSell > product.stockUnits) return alert('Cantidad inválida.');
+        if (isNaN(unitsToSell) || unitsToSell <= 0 || unitsToSell > product.stockUnits) return;
 
         state.cart.push({ id: product.id, name: product.name, saleType: 'unidad', price: product.pricePerUnit, kilos: 0, blocksEquivalent: 0, units: unitsToSell });
     }
@@ -1236,8 +1292,8 @@ function calculateChange() {
 
 function processSaleAndPrint() {
     const clientId = document.getElementById('client-select').value;
-    if (!clientId) return alert('Selecciona un comprador.');
-    if (state.cart.length === 0) return alert('El carrito está vacío.');
+    if (!clientId) return;
+    if (state.cart.length === 0) return;
 
     const client = state.clients.find(c => c.id == clientId);
     const paymentMethod = document.getElementById('payment-method').value;
@@ -1492,13 +1548,16 @@ function switchModule(modName) {
         if (dateInput && !dateInput.value) dateInput.valueAsDate = new Date();
         renderMilkProvidersSelect();
         renderProvidersTable();
+        renderMilkPaymentsTable();
         renderDailyMilkTable();
         
         if (state.currentUserRole === 'conductor') {
             const tabsContainer = document.getElementById('milk-tabs-container');
             if (tabsContainer) tabsContainer.classList.add('hidden');
             const secProv = document.getElementById('milk-section-proveedores');
+            const secPagos = document.getElementById('milk-section-pagos');
             if (secProv) secProv.classList.add('hidden');
+            if (secPagos) secPagos.classList.add('hidden');
             const secReg = document.getElementById('milk-section-registro');
             if (secReg) secReg.classList.remove('hidden');
         }
@@ -1552,3 +1611,5 @@ window.addYieldLog = addYieldLog;
 window.deleteYieldLog = deleteYieldLog;
 window.promptPayDebt = promptPayDebt;
 window.deleteDebtRecord = deleteDebtRecord;
+window.renderMilkPaymentsTable = renderMilkPaymentsTable;
+window.deleteMilkPayment = deleteMilkPayment;

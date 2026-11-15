@@ -502,12 +502,15 @@
 
             <!-- VISTA MÓDULO 4: ACOPIO DE LECHE Y CORTE QUINCENAL -->
             <div id="view-leche" class="hidden space-y-6">
-                <div id="milk-tabs-container" class="flex space-x-2 border-b border-sky-100 pb-3">
-                    <button onclick="switchMilkTab('registro')" id="milk-tab-registro" class="px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all">
+                <div id="milk-tabs-container" class="flex space-x-2 border-b border-sky-100 pb-3 overflow-x-auto">
+                    <button onclick="switchMilkTab('registro')" id="milk-tab-registro" class="px-4 py-2 bg-sky-600 text-white font-bold text-sm rounded-xl shadow-sm transition-all whitespace-nowrap">
                         1. Registro Diario de Litros
                     </button>
-                    <button onclick="switchMilkTab('proveedores')" id="milk-tab-proveedores" class="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all">
-                        2. Administrar Proveedores y Quincena
+                    <button onclick="switchMilkTab('proveedores')" id="milk-tab-proveedores" class="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap">
+                        2. Proveedores y Quincena
+                    </button>
+                    <button onclick="switchMilkTab('pagos')" id="milk-tab-pagos" class="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-200 transition-all whitespace-nowrap">
+                        3. Historial de Pagos
                     </button>
                 </div>
 
@@ -646,6 +649,34 @@
                                     <tbody id="providers-table-body"></tbody>
                                 </table>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN 3: HISTORIAL DE PAGOS A PROVEEDORES -->
+                <div id="milk-section-pagos" class="hidden space-y-6">
+                    <div class="bg-white rounded-2xl p-5 shadow-sm border border-sky-100 space-y-4">
+                        <div class="flex justify-between items-center border-b pb-3">
+                            <h3 class="font-bold text-sky-950 flex items-center space-x-2">
+                                <i data-lucide="receipt" class="w-5 h-5 text-sky-600"></i>
+                                <span>Historial de Pagos Realizados a Proveedores de Leche</span>
+                            </h3>
+                            <span class="text-xs font-bold bg-sky-50 text-sky-800 px-3 py-1 rounded-full border border-sky-200">Trazabilidad de Ruta</span>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead>
+                                    <tr class="bg-sky-50 text-sky-900 border-b border-sky-100">
+                                        <th class="py-2.5 px-4 font-bold">Fecha de Pago</th>
+                                        <th class="py-2.5 px-4 font-bold">Proveedor</th>
+                                        <th class="py-2.5 px-4 font-bold">Litros Liquidados</th>
+                                        <th class="py-2.5 px-4 font-bold">Precio / Litro</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Total Pagado ($)</th>
+                                        <th class="py-2.5 px-4 font-bold text-right">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="milk-payments-table-body"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -900,7 +931,7 @@
         </div>
     </div>
 
-    <!-- Script Principal con parámetro ?v=14 para forzar actualización de caché -->
-    <script type="module" src="./app.js?v=14"></script>
+    <!-- Script Principal con parámetro ?v=15 para forzar actualización de caché -->
+    <script type="module" src="./app.js?v=15"></script>
 </body>
 </html>
