@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
 
 :root {
     font-family: 'Plus Jakarta Sans', sans-serif;
@@ -8,115 +8,72 @@ code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* Fondo animado de alta tecnología para la pantalla de login */
-@keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+body {
+    background-color: #eef2f6;
+    color: #1e293b;
 }
 
-#auth-screen {
-    background: linear-gradient(-45deg, #022c22, #064e3b, #047857, #0f172a);
-    background-size: 400% 400%;
-    animation: gradientShift 15s ease infinite;
-}
-
-/* ==========================================
-   ESTILOS PRO PARA TODO EL INTERIOR DEL SISTEMA
-   ========================================== */
-
-/* 1. Contenedores y Tarjetas (Glassmorphism de Ingeniería) */
-#main-app .bg-white, 
-#main-app div[class*="bg-white"] {
-    background: rgba(255, 255, 255, 0.94) !important;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(16, 185, 129, 0.15) !important;
-    box-shadow: 0 10px 30px -10px rgba(2, 44, 34, 0.05), 0 0 15px rgba(16, 185, 129, 0.03) !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-#main-app .bg-white:hover, 
-#main-app div[class*="bg-white"]:hover {
-    box-shadow: 0 15px 40px -10px rgba(2, 44, 34, 0.1), 0 0 20px rgba(16, 185, 129, 0.08) !important;
-    transform: translateY(-2px);
-}
-
-/* 2. Inputs, Selects y Campos de Texto (Estilo Terminal / Limpio) */
-input:not([type="checkbox"]):not([type="radio"]), select {
-    background-color: #f8fafc !important;
-    border: 1px solid #cbd5e1 !important;
-    border-radius: 0.75rem !important;
-    transition: all 0.2s ease-in-out !important;
-}
-
-input:not([type="checkbox"]):not([type="radio"]):focus, select:focus {
+#main-app .bg-white {
     background-color: #ffffff !important;
-    border-color: #10b981 !important;
-    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2) !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 6px 20px -10px rgba(15, 23, 42, 0.08) !important;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+#main-app .bg-white:hover {
+    transform: translateY(-1px);
+    border-color: #cbd5e1 !important;
+    box-shadow: 0 12px 24px -12px rgba(15, 23, 42, 0.12) !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+    border-color: #059669 !important;
+    box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.14) !important;
     outline: none !important;
 }
 
-/* 3. Header Superior y Menú de Módulos (Glassmorphism Fijo) */
-header {
-    background: rgba(6, 78, 59, 0.92) !important;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid rgba(52, 211, 153, 0.25);
-}
-
-nav#main-nav-modules {
-    background: rgba(255, 255, 255, 0.9) !important;
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(16, 185, 129, 0.2) !important;
-}
-
-/* 4. Botones con Feedback Táctil y Sombra Pro */
-button {
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-button:active {
-    transform: scale(0.97) !important;
-}
-
-/* 5. Tablas Ejecutivas de Alta Densidad */
-table th {
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    font-size: 0.7rem;
-    font-weight: 800;
+table thead tr {
+    background-color: #f8fafc;
 }
 
 table tbody tr {
-    transition: all 0.2s ease !important;
+    transition: background-color 0.15s ease;
 }
 
 table tbody tr:hover {
-    background-color: rgba(236, 253, 245, 0.8) !important;
-    transform: scale(1.001);
+    background-color: #f1f5f9;
 }
 
-/* 6. Scrollbars Personalizados Estilo Código */
+button, .mod-btn {
+    transition: transform 0.15s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+button:active {
+    transform: scale(0.98);
+}
+
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #f1f5f9;
+    background: #e2e8f0;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: #94a3b8;
     border-radius: 9999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-}
-
-/* Ajustes específicos para impresión de tirillas POS */
 @media print {
     body * {
         visibility: hidden;
@@ -131,6 +88,6 @@ table tbody tr:hover {
         width: 100%;
         margin: 0;
         padding: 0;
-        background: white !important;
+        background: #ffffff !important;
     }
 }
