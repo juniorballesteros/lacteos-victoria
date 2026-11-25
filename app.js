@@ -40,6 +40,7 @@ let state = {
 };
 
 let currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
+let expandedDebtIds = new Set();
 
 function getLocalDateString() {
     const now = new Date();
@@ -354,6 +355,7 @@ function addPastDebt(e) {
         clientName: client.name,
         date: dateVal,
         concept: `Saldo Anterior: ${concept}`,
+        items: [],
         totalAmount: amount,
         paidAmount: 0,
         status: 'pendiente'
@@ -367,6 +369,26 @@ function addPastDebt(e) {
     renderClientAccountsTable();
     renderMonthlyBalance();
     alert("✅ Deuda histórica registrada con éxito.");
+}
+
+function toggleDebtDetails(debtId) {
+    const detailRow = document.getElementById(`debt-detail-row-${debtId}`);
+    const toggleBtn = document.getElementById(`debt-toggle-btn-${debtId}`);
+    if (!detailRow) return;
+
+    if (expandedDebtIds.has(debtId)) {
+        expandedDebtIds.delete(debtId);
+        detailRow.classList.add('hidden');
+        if (toggleBtn) {
+            toggleBtn.innerText = toggleBtn.dataset.closedLabel || 'Ver mercancía';
+        }
+    } else {
+        expandedDebtIds.add(debtId);
+        detailRow.classList.remove('hidden');
+        if (toggleBtn) {
+            toggleBtn.innerText = 'Ocultar';
+        }
+    }
 }
 
 // MÓDULO 1: CUENTAS POR COBRAR (RESUMEN + HISTORIAL DETALLADO DE FACTURAS)
@@ -434,6 +456,76 @@ function renderClientAccountsTable() {
             ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Cancelado</span>'
             : '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Pendiente</span>';
 
+        const itemsList = Array.isArray(debt.items) ? debt.items : [];
+        const hasItems = itemsList.length > 0;
+        const isExpanded = expandedDebtIds.has(debt.id);
+        const closedLabel = hasItems ? `Ver mercancía (${itemsList.length})` : 'Ver detalle';
+        const buttonLabel = isExpanded ? 'Ocultar' : closedLabel;
+
+        let detailContentHtml = '';
+        if (hasItems) {
+            const totalOriginalVenta = debt.totalVentaOriginal || debt.totalAmount;
+            const abonoInicial = debt.abonoInicial || 0;
+
+            const itemRowsHtml = itemsList.map(item => {
+                const cantidadTexto = item.saleType === 'kilos'
+                    ? `${item.kilos} kg${item.blocksEquivalent ? ` (${item.blocksEquivalent} blq)` : ''}`
+                    : `${item.units} und`;
+                const precioUnitario = item.price || 0;
+                const subtotalItem = item.saleType === 'kilos'
+                    ? (precioUnitario * (item.kilos || 0))
+                    : (precioUnitario * (item.units || 0));
+
+                return `
+                    <tr class="border-b border-slate-100">
+                        <td class="py-1.5 px-3 font-bold text-slate-800">${item.name}</td>
+                        <td class="py-1.5 px-3 font-mono text-slate-700">${cantidadTexto}</td>
+                        <td class="py-1.5 px-3 text-right font-mono text-slate-600">$${precioUnitario.toLocaleString('es-CO')}</td>
+                        <td class="py-1.5 px-3 text-right font-mono font-bold text-slate-900">$${subtotalItem.toLocaleString('es-CO')}</td>
+                    </tr>`;
+            }).join('');
+
+            detailContentHtml = `
+                <div class="bg-white rounded-xl p-3 border border-emerald-200 space-y-2">
+                    <div class="flex flex-wrap justify-between items-center border-b border-slate-100 pb-2 gap-2">
+                        <span class="text-xs font-bold text-emerald-900 uppercase">Mercancía vendida el ${debt.date} — ${debt.clientName}</span>
+                        <span class="text-xs font-mono font-bold text-slate-700">Total Venta: $${totalOriginalVenta.toLocaleString('es-CO')}</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="bg-emerald-50 text-emerald-900">
+                                    <th class="py-1.5 px-3 font-bold">Producto</th>
+                                    <th class="py-1.5 px-3 font-bold">Cantidad</th>
+                                    <th class="py-1.5 px-3 font-bold text-right">Precio Unit.</th>
+                                    <th class="py-1.5 px-3 font-bold text-right">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>${itemRowsHtml}</tbody>
+                        </table>
+                    </div>
+                    <div class="flex flex-wrap justify-end gap-4 pt-1 text-xs font-mono">
+                        ${abonoInicial > 0 ? `<span class="text-slate-600">Pagó al comprar: <strong>$${abonoInicial.toLocaleString('es-CO')}</strong></span>` : ''}
+                        <span class="text-slate-700">Fiado inicial: <strong>$${debt.totalAmount.toLocaleString('es-CO')}</strong></span>
+                        <span class="text-emerald-700">Abonado: <strong>$${debt.paidAmount.toLocaleString('es-CO')}</strong></span>
+                        <span class="text-amber-800 font-bold">Debe: $${saldoPendiente.toLocaleString('es-CO')}</span>
+                    </div>
+                </div>`;
+        } else {
+            detailContentHtml = `
+                <div class="bg-white rounded-xl p-3 border border-slate-200 flex flex-wrap justify-between items-center gap-2 text-xs">
+                    <div>
+                        <p class="font-bold text-slate-800">${debt.concept}</p>
+                        <p class="text-slate-500 mt-0.5">Fecha: ${debt.date} • Registro sin desglose de productos del POS</p>
+                    </div>
+                    <div class="font-mono space-x-3">
+                        <span class="text-slate-700">Valor: <strong>$${debt.totalAmount.toLocaleString('es-CO')}</strong></span>
+                        <span class="text-emerald-700">Abonado: <strong>$${debt.paidAmount.toLocaleString('es-CO')}</strong></span>
+                        <span class="text-amber-800 font-bold">Saldo: $${saldoPendiente.toLocaleString('es-CO')}</span>
+                    </div>
+                </div>`;
+        }
+
         detailedTbody.innerHTML += `
             <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
                 <td class="py-3 px-4 font-mono text-xs text-slate-500">${debt.date}</td>
@@ -443,9 +535,15 @@ function renderClientAccountsTable() {
                 <td class="py-3 px-4 text-right font-mono text-emerald-700">$${debt.paidAmount.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${saldoPendiente.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-center">${statusBadge}</td>
-                <td class="py-3 px-4 text-right space-x-1">
-                    ${saldoPendiente > 0 ? `<button onclick="promptPaySpecificDebt(${debt.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded-lg shadow-sm">Abonar Factura</button>` : ''}
-                    <button onclick="deleteDebtRecord(${debt.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button>
+                <td class="py-3 px-4 text-right space-x-1 whitespace-nowrap">
+                    <button type="button" id="debt-toggle-btn-${debt.id}" data-closed-label="${closedLabel}" onclick="toggleDebtDetails(${debt.id})" class="text-xs bg-sky-100 hover:bg-slate-200 text-sky-800 font-bold px-2.5 py-1 rounded-lg">${buttonLabel}</button>
+                    ${saldoPendiente > 0 ? `<button type="button" onclick="promptPaySpecificDebt(${debt.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1 rounded-lg shadow-sm">Abonar Factura</button>` : ''}
+                    <button type="button" onclick="deleteDebtRecord(${debt.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button>
+                </td>
+            </tr>
+            <tr id="debt-detail-row-${debt.id}" class="${isExpanded ? '' : 'hidden'}">
+                <td colspan="8" class="p-3 bg-slate-50 border-b border-slate-200">
+                    ${detailContentHtml}
                 </td>
             </tr>`;
     });
@@ -497,6 +595,7 @@ function promptPaySpecificDebt(debtId) {
 
 function deleteDebtRecord(id) {
     if (confirm("¿Estás seguro de eliminar este registro de cuenta por cobrar?")) {
+        expandedDebtIds.delete(id);
         state.clientDebts = state.clientDebts.filter(d => d.id !== id);
         saveData();
         renderClientAccountsTable();
@@ -1431,12 +1530,19 @@ function processSaleAndPrint() {
         montoFiado = totalVenta - dineroRecibido;
         dineroEntraCaja = dineroRecibido;
 
+        const itemsSummary = state.cart.map(i => i.saleType === 'kilos'
+            ? `${i.kilos}kg ${i.name}`
+            : `${i.units} und ${i.name}`).join(', ');
+
         state.clientDebts.push({
             id: Date.now(),
             clientId: client.id,
             clientName: client.name,
             date: new Date().toLocaleDateString('es-CO'),
-            concept: `Venta Directa (Factura Crédito)`,
+            concept: `Venta Directa: ${itemsSummary}`,
+            items: state.cart.map(i => ({ ...i })),
+            totalVentaOriginal: totalVenta,
+            abonoInicial: dineroRecibido,
             totalAmount: montoFiado,
             paidAmount: 0,
             status: 'pendiente'
@@ -1767,6 +1873,7 @@ window.toggleNewClientForm = toggleNewClientForm;
 window.saveClient = saveClient;
 window.renderPastDebtClientSelect = renderPastDebtClientSelect;
 window.addPastDebt = addPastDebt;
+window.toggleDebtDetails = toggleDebtDetails;
 window.addExpense = addExpense;
 window.deleteExpense = deleteExpense;
 window.switchMilkTab = switchMilkTab;
