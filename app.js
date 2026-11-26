@@ -122,8 +122,29 @@ function saveData() {
 }
 
 function ensureRegisterFieldsExist() {
+    // Eliminar cualquier campo de código maestro que exista en el HTML
+    const oldCodeInput = document.getElementById('auth-code-input');
+    if (oldCodeInput) {
+        const wrapper = oldCodeInput.closest('div');
+        if (wrapper) wrapper.remove();
+        else oldCodeInput.remove();
+    }
+
+    const cleanHtml = `
+        <div>
+            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Tipo de Cuenta / Rol</label>
+            <select id="role-select" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-600">
+                <option value="admin">Administrador (Acceso Total)</option>
+                <option value="conductor">Conductor de Ruta (Solo Acopio Leche)</option>
+            </select>
+        </div>
+    `;
+
     let regFields = document.getElementById('register-extra-fields');
-    if (regFields) return regFields;
+    if (regFields) {
+        regFields.innerHTML = cleanHtml;
+        return regFields;
+    }
 
     const passwordInput = document.getElementById('password-input');
     const form = passwordInput ? passwordInput.closest('form') : document.querySelector('#auth-screen form');
@@ -133,15 +154,7 @@ function ensureRegisterFieldsExist() {
     regFields = document.createElement('div');
     regFields.id = 'register-extra-fields';
     regFields.className = 'hidden space-y-3 pt-1';
-    regFields.innerHTML = `
-        <div>
-            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Tipo de Cuenta / Rol</label>
-            <select id="role-select" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-600">
-                <option value="admin">Administrador (Acceso Total)</option>
-                <option value="conductor">Conductor de Ruta (Solo Acopio Leche)</option>
-            </select>
-        </div>
-    `;
+    regFields.innerHTML = cleanHtml;
 
     if (submitBtn) {
         form.insertBefore(regFields, submitBtn);
@@ -156,8 +169,9 @@ function getAuthTabButtons() {
     let tabRegister = document.getElementById('tab-register');
 
     if (!tabLogin || !tabRegister) {
-        const authButtons = document.querySelectorAll('#auth-screen button[type="button"]');
+        const authButtons = document.querySelectorAll('#auth-screen button');
         authButtons.forEach(btn => {
+            if (btn.type === 'submit') return;
             const txt = btn.textContent.trim().toLowerCase();
             if (txt.includes('iniciar')) tabLogin = btn;
             if (txt.includes('registrar')) tabRegister = btn;
@@ -167,6 +181,7 @@ function getAuthTabButtons() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    ensureRegisterFieldsExist();
     loadSavedDataFromCloud();
     if (window.lucide) lucide.createIcons();
     updateDateDisplay();
@@ -214,9 +229,12 @@ function switchAuthTab(mode) {
     const btnText = document.getElementById('auth-btn-text');
     const regFields = ensureRegisterFieldsExist();
 
+    const activeTabClass = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-900 shadow-sm transition-all";
+    const inactiveTabClass = "flex-1 py-2 text-sm font-semibold rounded-lg text-slate-600 hover:text-emerald-800 transition-all";
+
     if (isRegisterMode) {
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
+        if (tabRegister) tabRegister.className = activeTabClass;
+        if (tabLogin) tabLogin.className = inactiveTabClass;
         if (btnText) {
             btnText.innerText = "Crear Cuenta y Entrar";
         } else {
@@ -225,8 +243,8 @@ function switchAuthTab(mode) {
         }
         if (regFields) regFields.classList.remove('hidden');
     } else {
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
+        if (tabLogin) tabLogin.className = activeTabClass;
+        if (tabRegister) tabRegister.className = inactiveTabClass;
         if (btnText) {
             btnText.innerText = "Ingresar al Sistema";
         } else {
@@ -1794,7 +1812,6 @@ function renderMonthlyBalance() {
     let totalVentasMes = 0, totalNequiMes = 0, totalGastosMes = 0;
     let transactions = [];
 
-    // 1. Ventas y Abonos (Módulo 2 / Módulo 1)
     state.salesHistory.forEach(s => {
         totalVentasMes += s.total;
         if (s.paymentMethod === 'Nequi') totalNequiMes += s.total;
@@ -1813,7 +1830,6 @@ function renderMonthlyBalance() {
         });
     });
 
-    // 2. Pagos a Proveedores de Leche (Módulo 4: Acopio)
     state.milkPayments.forEach(p => {
         totalGastosMes += p.totalPaid;
         transactions.push({
@@ -1826,7 +1842,6 @@ function renderMonthlyBalance() {
         });
     });
 
-    // 3. Gastos e Inversiones (Excluyendo duplicados de pagos de leche)
     state.expenses.forEach(e => {
         if (e.name.startsWith('Pago Quincena Leche')) return;
 
