@@ -14,7 +14,7 @@ const firebaseConfig = {
     measurementId: "G-NB2W7V2TGB"
 };
 
-// Inicializar Firebase y la Base de Datos en Tiempo Real
+// Inicializar Firebase y Base de Datos
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const STORAGE_KEY = 'lacteos_app_master_db';
@@ -22,25 +22,25 @@ const STORAGE_KEY = 'lacteos_app_master_db';
 // ESTADO GENERAL DE LA APLICACIÓN
 let state = {
     companyName: 'Lácteos Victoria',
-    authMode: 'login',
-    currentUserRole: 'admin', 
-    registeredUsers: [], 
+    currentUserRole: 'admin',
     currentUserEmail: null,
-    clients: [], 
-    products: [], 
-    productionLogs: [], 
-    salesHistory: [], 
-    expenses: [], 
-    milkProviders: [], 
-    dailyMilkLogs: [], 
-    milkPayments: [], 
-    yieldLogs: [], 
-    clientDebts: [], 
+    clients: [],
+    products: [],
+    productionLogs: [],
+    salesHistory: [],
+    expenses: [],
+    milkProviders: [],
+    dailyMilkLogs: [],
+    milkPayments: [],
+    yieldLogs: [],
+    clientDebts: [],
     cart: []
 };
 
 let currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
 let expandedDebtIds = new Set();
+let isRegisterMode = false;
+let lastReceiptData = null;
 
 function getLocalDateString() {
     const now = new Date();
@@ -56,7 +56,6 @@ function loadSavedDataFromCloud() {
         const parsed = snapshot.val();
         if (parsed) {
             state.companyName = parsed.companyName || state.companyName;
-            state.registeredUsers = parsed.registeredUsers || [];
             state.clients = parsed.clients || [];
             state.products = parsed.products || [];
             state.productionLogs = parsed.productionLogs || [];
@@ -67,6 +66,11 @@ function loadSavedDataFromCloud() {
             state.milkPayments = parsed.milkPayments || [];
             state.yieldLogs = parsed.yieldLogs || [];
             state.clientDebts = parsed.clientDebts || [];
+
+            const appNameEl = document.getElementById('app-company-name');
+            const receiptCompanyEl = document.getElementById('receipt-company');
+            if (appNameEl) appNameEl.innerText = state.companyName;
+            if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
@@ -93,7 +97,6 @@ function loadSavedDataFromCloud() {
 function saveData() {
     const dataToSave = {
         companyName: state.companyName,
-        registeredUsers: state.registeredUsers,
         clients: state.clients,
         products: state.products,
         productionLogs: state.productionLogs,
@@ -105,7 +108,7 @@ function saveData() {
         yieldLogs: state.yieldLogs,
         clientDebts: state.clientDebts
     };
-    
+
     set(ref(db, STORAGE_KEY), dataToSave).catch((error) => {
         console.error("Error al sincronizar con Firebase:", error);
     });
@@ -135,63 +138,22 @@ function updateDateDisplay() {
 }
 
 function switchAuthTab(mode) {
-    state.authMode = mode;
+    isRegisterMode = mode === 'register';
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
-    const roleField = document.getElementById('role-selection-field');
-    const companyField = document.getElementById('company-name-field');
-    const strengthContainer = document.getElementById('password-strength-container');
-    const authBtn = document.getElementById('auth-btn');
+    const btnText = document.getElementById('auth-btn-text');
+    const regFields = document.getElementById('register-extra-fields');
 
-    document.getElementById('email-input').value = '';
-    document.getElementById('password-input').value = '';
-
-    if (mode === 'register') {
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
-        if (roleField) roleField.classList.remove('hidden');
-        if (companyField) companyField.classList.remove('hidden');
-        if (strengthContainer) strengthContainer.classList.remove('hidden');
-        if (authBtn) authBtn.querySelector('span').innerText = "Crear Cuenta";
-        checkPasswordStrength('');
+    if (isRegisterMode) {
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
+        if (btnText) btnText.innerText = "Crear Cuenta y Entrar";
+        if (regFields) regFields.classList.remove('hidden');
     } else {
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
-        if (roleField) roleField.classList.add('hidden');
-        if (companyField) companyField.classList.add('hidden');
-        if (strengthContainer) strengthContainer.classList.add('hidden');
-        if (authBtn) authBtn.querySelector('span').innerText = "Ingresar al Sistema";
-    }
-}
-
-function checkPasswordStrength(password) {
-    if (state.authMode !== 'register') return;
-
-    const hasLength = password.length >= 8;
-    const hasUpper = /[A-ZÁÉÍÓÚÑ]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-
-    let score = 0;
-    if (hasLength) score++;
-    if (hasUpper) score++;
-    if (hasNumber) score++;
-
-    const bar = document.getElementById('strength-bar');
-    const label = document.getElementById('strength-label');
-    if (!bar || !label) return;
-
-    if (score <= 1) {
-        bar.className = "bg-red-500 h-full w-1/3 transition-all duration-300";
-        label.className = "text-red-500 font-bold";
-        label.innerText = "Débil";
-    } else if (score === 2) {
-        bar.className = "bg-amber-500 h-full w-2/3 transition-all duration-300";
-        label.className = "text-amber-600 font-bold";
-        label.innerText = "Moderado";
-    } else if (score === 3) {
-        bar.className = "bg-emerald-500 h-full w-full transition-all duration-300";
-        label.className = "text-emerald-600 font-bold";
-        label.innerText = "Alto / Segura";
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
+        if (btnText) btnText.innerText = "Ingresar al Sistema";
+        if (regFields) regFields.classList.add('hidden');
     }
 }
 
@@ -199,43 +161,30 @@ function handleAuthSubmit(e) {
     e.preventDefault();
     const email = document.getElementById('email-input').value.trim();
     const password = document.getElementById('password-input').value.trim();
+    if (!email || !password) return;
 
-    if (state.authMode === 'register') {
-        const roleInput = document.getElementById('user-role-input').value;
-        const companyInput = document.getElementById('company-name-input').value.trim();
-        
-        if (roleInput === 'admin' && companyInput) {
-            state.companyName = companyInput;
+    if (isRegisterMode) {
+        const companyNameInput = document.getElementById('company-name-input');
+        const roleSelect = document.getElementById('role-select');
+        const companyName = companyNameInput ? companyNameInput.value.trim() : '';
+        const role = roleSelect ? roleSelect.value : 'admin';
+
+        if (companyName) {
+            state.companyName = companyName;
+            document.getElementById('app-company-name').innerText = companyName;
+            document.getElementById('receipt-company').innerText = companyName.toUpperCase();
         }
-
-        if (password.length < 8 || !/[A-ZÁÉÍÓÚÑ]/.test(password) || !/[0-9]/.test(password)) {
-            return;
+        state.currentUserRole = role;
+    } else {
+        if (email.toLowerCase().includes('conductor')) {
+            state.currentUserRole = 'conductor';
+        } else {
+            state.currentUserRole = 'admin';
         }
-
-        const existingUser = state.registeredUsers.find(u => u.email === email);
-        if (existingUser) return;
-
-        state.registeredUsers.push({ email, password, role: roleInput });
-        saveData();
-        switchAuthTab('login');
-        return;
     }
 
-    let foundUser = state.registeredUsers.find(u => u.email === email && u.password === password);
-    
-    if (!foundUser && state.registeredUsers.length === 0) {
-        foundUser = { email, password, role: 'admin' };
-        state.registeredUsers.push(foundUser);
-        saveData();
-    }
-
-    if (!foundUser) return;
-
-    state.currentUserRole = foundUser.role;
-    state.currentUserEmail = foundUser.email;
-
-    document.getElementById('app-company-name').innerText = state.companyName;
-    document.getElementById('receipt-company').innerText = state.companyName.toUpperCase();
+    state.currentUserEmail = email;
+    saveData();
 
     document.getElementById('auth-screen').classList.add('hidden');
     document.getElementById('main-app').classList.remove('hidden');
@@ -278,7 +227,7 @@ function applyUserRoleInterface() {
         if (tabPagos) tabPagos.classList.add('hidden');
     } else {
         if (navModules) navModules.classList.remove('hidden');
-        if (headerRoleBadge) headerRoleBadge.innerText = 'Panel de Administración (Dueño)';
+        if (headerRoleBadge) headerRoleBadge.innerText = "Panel de Administración (Dueño)";
         if (configBtnTop) configBtnTop.classList.remove('hidden');
 
         const tabProv = document.getElementById('milk-tab-proveedores');
@@ -290,8 +239,6 @@ function applyUserRoleInterface() {
 }
 
 function logout() {
-    state.currentUserRole = 'admin';
-    state.currentUserEmail = null;
     document.getElementById('main-app').classList.add('hidden');
     document.getElementById('auth-screen').classList.remove('hidden');
 }
@@ -365,7 +312,7 @@ function addPastDebt(e) {
     document.getElementById('past-debt-form').reset();
     const dateInput = document.getElementById('past-debt-date');
     if (dateInput) dateInput.valueAsDate = new Date();
-    
+
     renderClientAccountsTable();
     renderMonthlyBalance();
     alert("✅ Deuda histórica registrada con éxito.");
@@ -434,7 +381,7 @@ function renderClientAccountsTable() {
     });
 
     Object.values(clientSummaryMap).forEach(summary => {
-        const statusBadge = summary.saldoPendiente === 0 
+        const statusBadge = summary.saldoPendiente === 0
             ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Al Día / Cancelado</span>'
             : '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Tiene Saldo Pendiente</span>';
 
@@ -452,7 +399,7 @@ function renderClientAccountsTable() {
 
     sortedDebts.forEach(debt => {
         const saldoPendiente = Math.max(0, debt.totalAmount - debt.paidAmount);
-        const statusBadge = debt.status === 'pagado' 
+        const statusBadge = debt.status === 'pagado'
             ? '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">Cancelado</span>'
             : '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">Pendiente</span>';
 
@@ -556,7 +503,7 @@ function promptPaySpecificDebt(debtId) {
     const debt = state.clientDebts.find(d => d.id === debtId);
     if (!debt) return;
     const saldo = debt.totalAmount - debt.paidAmount;
-    
+
     const inputAbono = prompt(`Abonar a factura de ${debt.clientName} (${debt.date} - ${debt.concept})\nSaldo pendiente de esta factura: $${saldo.toLocaleString('es-CO')}\n\nIngresa el valor del abono:`, saldo);
     if (inputAbono === null) return;
     const abono = parseFloat(inputAbono);
@@ -781,7 +728,7 @@ function payProviderQuincena(providerId) {
     });
 
     state.dailyMilkLogs = state.dailyMilkLogs.filter(log => log.providerId !== prov.id);
-    
+
     saveData();
     renderProvidersTable();
     renderMilkPaymentsTable();
@@ -959,9 +906,9 @@ function onYieldProductSelectChange() {
     const nameInput = document.getElementById('yield-product-name');
     const typeSelect = document.getElementById('yield-type');
     const targetInput = document.getElementById('yield-custom-target');
-    
+
     if (!select || !nameInput) return;
-    
+
     const val = select.value;
     if (val === 'Personalizado') {
         nameInput.value = '';
@@ -1010,7 +957,7 @@ function updateYieldTopCardForSelectedProduct(productName) {
         const pName = (l.productName || '').toLowerCase().trim();
         return pName.includes(searchKey) || searchKey.includes(pName);
     });
-    
+
     if (logsOfProduct.length === 0) {
         const targetInput = document.getElementById('yield-custom-target');
         const unit = document.getElementById('yield-type').value === 'libras' ? 'lb/cant' : 'kg/cant';
@@ -1096,7 +1043,6 @@ function onYieldDateChange() {
     onYieldLitersInput();
 
     const cantinasTotal = (totalLitersDay / 40).toFixed(2);
-    const cantinasUsed = (usedLitersDay / 40).toFixed(2);
     const cantinasRem = (remainingLiters / 40).toFixed(2);
 
     detailsEl.innerHTML = `
@@ -1108,7 +1054,7 @@ function onYieldDateChange() {
 function onYieldLitersInput() {
     const allocatedLiters = parseFloat(document.getElementById('yield-liters').value) || 0;
     const costInput = document.getElementById('yield-milk-cost');
-    
+
     if (currentDayMilkData.avgCostPerLiter > 0) {
         const proportionalCost = Math.round(allocatedLiters * currentDayMilkData.avgCostPerLiter);
         costInput.value = proportionalCost;
@@ -1239,7 +1185,7 @@ function renderYieldTable() {
     const promedioGanancia = Math.round(sumaGanancias / count);
     document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(1)} Cantinas`;
     document.getElementById('stat-yield-profit').innerText = `$${promedioGanancia.toLocaleString('es-CO')}`;
-    
+
     const productNameInput = document.getElementById('yield-product-name');
     if (productNameInput) {
         updateYieldTopCardForSelectedProduct(productNameInput.value);
@@ -1452,7 +1398,7 @@ function renderCart() {
         let itemTotal = item.saleType === 'kilos' ? (item.price * item.kilos) : (item.price * item.units);
         total += itemTotal;
         let desc = item.saleType === 'kilos' ? `${item.kilos}kg (${item.blocksEquivalent || 0} blq)` : `${item.units} und`;
-        
+
         cartContainer.innerHTML += `
             <div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white gap-2">
                 <div class="flex-1">
@@ -1479,7 +1425,7 @@ function calculateChange() {
     const total = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
     const received = parseFloat(document.getElementById('received-amount').value) || 0;
     const diff = received - total;
-    
+
     const changeEl = document.getElementById('change-amount');
     const labelChangeText = document.getElementById('label-change-text');
     if (!changeEl || !labelChangeText) return;
@@ -1585,21 +1531,36 @@ function processSaleAndPrint() {
 
     saveData();
 
-    document.getElementById('receipt-company').innerText = state.companyName.toUpperCase();
-    document.getElementById('receipt-date').innerText = new Date().toLocaleString('es-CO');
+    const fechaActual = new Date().toLocaleString('es-CO');
+    lastReceiptData = {
+        company: state.companyName.toUpperCase(),
+        date: fechaActual,
+        client: client.name,
+        paymentMethod,
+        items: state.cart.map(item => ({
+            name: item.name,
+            desc: item.saleType === 'kilos' ? `${item.kilos}kg / ${item.blocksEquivalent || 0}blq` : `${item.units} und`,
+            subtotal: item.saleType === 'kilos' ? item.price * item.kilos : item.price * item.units
+        })),
+        totalVenta,
+        dineroRecibido,
+        montoFiado
+    };
+
+    document.getElementById('receipt-company').innerText = lastReceiptData.company;
+    document.getElementById('receipt-date').innerText = fechaActual;
     document.getElementById('receipt-client').innerText = client.name;
     document.getElementById('receipt-payment-method').innerText = paymentMethod;
 
     const tbody = document.getElementById('receipt-items-body');
     tbody.innerHTML = '';
-    state.cart.forEach(item => {
-        let desc = item.saleType === 'kilos' ? `${item.kilos}kg / ${item.blocksEquivalent || 0}blq` : `${item.units} und`;
-        tbody.innerHTML += `<tr><td>${item.name} (${desc})</td><td class="text-right font-bold">$${(item.saleType === 'kilos' ? item.price * item.kilos : item.price * item.units).toLocaleString('es-CO')}</td></tr>`;
+    lastReceiptData.items.forEach(item => {
+        tbody.innerHTML += `<tr><td>${item.name} (${item.desc})</td><td class="text-right font-bold">$${item.subtotal.toLocaleString('es-CO')}</td></tr>`;
     });
 
     document.getElementById('receipt-total').innerText = `$${totalVenta.toLocaleString('es-CO')}`;
     document.getElementById('receipt-received').innerText = `$${dineroRecibido.toLocaleString('es-CO')}`;
-    
+
     const receiptChangeRow = document.getElementById('receipt-change-row');
     const receiptDebtRow = document.getElementById('receipt-debt-row');
 
@@ -1653,7 +1614,7 @@ function renderSalesHistory() {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ingresos registrados hoy.</td></tr>';
     } else {
         state.salesHistory.forEach(sale => {
-            const itemsDesc = sale.isAbono 
+            const itemsDesc = sale.isAbono
                 ? `<span class="font-bold text-amber-800">${sale.items[0].name}</span>`
                 : sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg de ${i.name}` : `${i.units} und de ${i.name}`).join(' | ');
 
@@ -1687,9 +1648,9 @@ function renderMonthlyBalance() {
     state.salesHistory.forEach(s => {
         totalVentasMes += s.total;
         if (s.paymentMethod === 'Nequi') totalNequiMes += s.total;
-        
-        const desc = s.isAbono 
-            ? s.items[0].name 
+
+        const desc = s.isAbono
+            ? s.items[0].name
             : s.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`).join(', ');
 
         transactions.push({
@@ -1781,7 +1742,46 @@ function closeReceiptModal() {
     document.getElementById('modal-receipt').classList.remove('flex');
 }
 
-function triggerPrint() { window.print(); }
+function triggerPrint() {
+    const isAndroid = /Android/i.test(navigator.userAgent);
+
+    if (isAndroid && lastReceiptData) {
+        const line = "--------------------------------";
+        let ticket = "";
+        ticket += `      ${lastReceiptData.company}\n`;
+        ticket += "  Comprobante de Venta Directa\n";
+        ticket += `  ${lastReceiptData.date}\n`;
+        ticket += `${line}\n`;
+        ticket += `Cliente: ${lastReceiptData.client}\n`;
+        ticket += `Pago: ${lastReceiptData.paymentMethod}\n`;
+        ticket += `${line}\n`;
+
+        lastReceiptData.items.forEach(it => {
+            ticket += `${it.name} (${it.desc})\n`;
+            ticket += `                  $${it.subtotal.toLocaleString('es-CO')}\n`;
+        });
+
+        ticket += `${line}\n`;
+        ticket += `TOTAL VENTA:      $${lastReceiptData.totalVenta.toLocaleString('es-CO')}\n`;
+        ticket += `Dinero Ingresado: $${lastReceiptData.dineroRecibido.toLocaleString('es-CO')}\n`;
+
+        if (lastReceiptData.dineroRecibido >= lastReceiptData.totalVenta) {
+            const cambio = lastReceiptData.dineroRecibido - lastReceiptData.totalVenta;
+            ticket += `Cambio / Vueltas: $${cambio.toLocaleString('es-CO')}\n`;
+        } else {
+            ticket += `Quedo Fiado:      $${lastReceiptData.montoFiado.toLocaleString('es-CO')}\n`;
+        }
+
+        ticket += `${line}\n`;
+        ticket += "    Gracias por su compra!\n";
+        ticket += "  Producto Fresco de Calidad\n\n\n\n";
+
+        const cleanTicket = ticket.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        window.location.href = "rawbt:" + encodeURIComponent(cleanTicket);
+    } else {
+        window.print();
+    }
+}
 
 function openConfigModal() {
     document.getElementById('modal-company-name-input').value = state.companyName;
@@ -1838,7 +1838,7 @@ function switchModule(modName) {
         renderProvidersTable();
         renderMilkPaymentsTable();
         renderDailyMilkTable();
-        
+
         if (state.currentUserRole === 'conductor') {
             const tabsContainer = document.getElementById('milk-tabs-container');
             if (tabsContainer) tabsContainer.classList.add('hidden');
@@ -1867,7 +1867,6 @@ function switchModule(modName) {
 // EXPORTAR FUNCIONES AL ÁMBITO GLOBAL
 window.switchAuthTab = switchAuthTab;
 window.handleAuthSubmit = handleAuthSubmit;
-window.checkPasswordStrength = checkPasswordStrength;
 window.switchModule = switchModule;
 window.toggleNewClientForm = toggleNewClientForm;
 window.saveClient = saveClient;
