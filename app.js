@@ -25,7 +25,6 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
 const STORAGE_KEY = 'lacteos_app_master_db';
-const REGISTRATION_ACCESS_CODE = 'VICTORIA2026';
 
 // ESTADO GENERAL DE LA APLICACIÓN
 let state = {
@@ -142,10 +141,6 @@ function ensureRegisterFieldsExist() {
                 <option value="conductor">Conductor de Ruta (Solo Acopio Leche)</option>
             </select>
         </div>
-        <div>
-            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Código de Autorización del Negocio</label>
-            <input type="password" id="auth-code-input" placeholder="Ingresa el código maestro" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-emerald-600">
-        </div>
     `;
 
     if (submitBtn) {
@@ -154,6 +149,21 @@ function ensureRegisterFieldsExist() {
         form.appendChild(regFields);
     }
     return regFields;
+}
+
+function getAuthTabButtons() {
+    let tabLogin = document.getElementById('tab-login');
+    let tabRegister = document.getElementById('tab-register');
+
+    if (!tabLogin || !tabRegister) {
+        const authButtons = document.querySelectorAll('#auth-screen button[type="button"]');
+        authButtons.forEach(btn => {
+            const txt = btn.textContent.trim().toLowerCase();
+            if (txt.includes('iniciar')) tabLogin = btn;
+            if (txt.includes('registrar')) tabRegister = btn;
+        });
+    }
+    return { tabLogin, tabRegister };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -172,16 +182,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const pastDebtDateEl = document.getElementById('past-debt-date');
     if (pastDebtDateEl) pastDebtDateEl.valueAsDate = new Date();
 
-    // Enlazar botones de Iniciar Sesión y Registrarse directamente por seguridad
-    const tabLogin = document.getElementById('tab-login');
-    const tabRegister = document.getElementById('tab-register');
-    if (tabLogin) {
+    const { tabLogin, tabRegister } = getAuthTabButtons();
+    if (tabLogin && !tabLogin.getAttribute('onclick')) {
         tabLogin.addEventListener('click', (e) => {
             e.preventDefault();
             switchAuthTab('login');
         });
     }
-    if (tabRegister) {
+    if (tabRegister && !tabRegister.getAttribute('onclick')) {
         tabRegister.addEventListener('click', (e) => {
             e.preventDefault();
             switchAuthTab('register');
@@ -202,8 +210,7 @@ function updateDateDisplay() {
 
 function switchAuthTab(mode) {
     isRegisterMode = mode === 'register';
-    const tabLogin = document.getElementById('tab-login');
-    const tabRegister = document.getElementById('tab-register');
+    const { tabLogin, tabRegister } = getAuthTabButtons();
     const btnText = document.getElementById('auth-btn-text');
     const regFields = ensureRegisterFieldsExist();
 
@@ -266,14 +273,6 @@ async function handleAuthSubmit(e) {
     if (!email || !password) {
         alert("⚠️ Por favor escribe tu correo electrónico y contraseña.");
         return;
-    }
-
-    if (isRegisterMode) {
-        const authCodeEl = document.getElementById('auth-code-input');
-        if (authCodeEl && authCodeEl.value.trim().toUpperCase() !== REGISTRATION_ACCESS_CODE) {
-            alert("⚠️ Código de autorización incorrecto. Ingresa el código maestro del negocio.");
-            return;
-        }
     }
 
     const originalLabel = btnText ? btnText.innerText : (submitBtn ? submitBtn.innerText : '');
