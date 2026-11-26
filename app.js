@@ -1,8 +1,8 @@
-// Importar únicamente Firebase App y Realtime Database (sin Firebase Auth)
+// Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
 
-// Configuración de tu proyecto en Firebase Realtime Database
+// Credenciales oficiales de tu proyecto en Firebase
 const firebaseConfig = {
     apiKey: "AIzaSyAXWC6FgkeLlOtzH4_gPTwkRQzKrbAPCkE",
     authDomain: "lacteosvictoria-2b574.firebaseapp.com",
@@ -14,7 +14,7 @@ const firebaseConfig = {
     measurementId: "G-NB2W7V2TGB"
 };
 
-// Inicializar Firebase y Base de Datos en Tiempo Real
+// Inicializar Firebase y Base de Datos
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const STORAGE_KEY = 'lacteos_app_master_db';
@@ -24,7 +24,6 @@ let state = {
     companyName: 'Lácteos Victoria',
     currentUserRole: 'admin',
     currentUserEmail: null,
-    registeredUsers: [],
     clients: [],
     products: [],
     productionLogs: [],
@@ -57,7 +56,6 @@ function loadSavedDataFromCloud() {
         const parsed = snapshot.val();
         if (parsed) {
             state.companyName = parsed.companyName || state.companyName;
-            state.registeredUsers = parsed.registeredUsers || [];
             state.clients = parsed.clients || [];
             state.products = parsed.products || [];
             state.productionLogs = parsed.productionLogs || [];
@@ -71,10 +69,8 @@ function loadSavedDataFromCloud() {
 
             const appNameEl = document.getElementById('app-company-name');
             const receiptCompanyEl = document.getElementById('receipt-company');
-            const titleEl = document.getElementById('display-company-title');
             if (appNameEl) appNameEl.innerText = state.companyName;
             if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
-            if (titleEl) titleEl.innerText = state.companyName;
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
@@ -101,7 +97,6 @@ function loadSavedDataFromCloud() {
 function saveData() {
     const dataToSave = {
         companyName: state.companyName,
-        registeredUsers: state.registeredUsers,
         clients: state.clients,
         products: state.products,
         productionLogs: state.productionLogs,
@@ -119,67 +114,7 @@ function saveData() {
     });
 }
 
-function ensureRegisterFieldsExist() {
-    // Limpiar cualquier campo de código de autorización si quedó en el HTML
-    const oldCodeInput = document.getElementById('auth-code-input');
-    if (oldCodeInput) {
-        const wrapper = oldCodeInput.closest('div');
-        if (wrapper) wrapper.remove();
-        else oldCodeInput.remove();
-    }
-
-    const cleanHtml = `
-        <div>
-            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Tipo de Cuenta / Rol</label>
-            <select id="role-select" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-600">
-                <option value="admin">Administrador (Acceso Total)</option>
-                <option value="conductor">Conductor de Ruta (Solo Acopio Leche)</option>
-            </select>
-        </div>
-    `;
-
-    let regFields = document.getElementById('register-extra-fields');
-    if (regFields) {
-        regFields.innerHTML = cleanHtml;
-        return regFields;
-    }
-
-    const passwordInput = document.getElementById('password-input');
-    const form = passwordInput ? passwordInput.closest('form') : document.querySelector('#auth-screen form');
-    if (!form) return null;
-
-    const submitBtn = form.querySelector('button[type="submit"]');
-    regFields = document.createElement('div');
-    regFields.id = 'register-extra-fields';
-    regFields.className = 'hidden space-y-3 pt-1';
-    regFields.innerHTML = cleanHtml;
-
-    if (submitBtn) {
-        form.insertBefore(regFields, submitBtn);
-    } else {
-        form.appendChild(regFields);
-    }
-    return regFields;
-}
-
-function getAuthTabButtons() {
-    let tabLogin = document.getElementById('tab-login');
-    let tabRegister = document.getElementById('tab-register');
-
-    if (!tabLogin || !tabRegister) {
-        const authButtons = document.querySelectorAll('#auth-screen button');
-        authButtons.forEach(btn => {
-            if (btn.type === 'submit') return;
-            const txt = btn.textContent.trim().toLowerCase();
-            if (txt.includes('iniciar')) tabLogin = btn;
-            if (txt.includes('registrar')) tabRegister = btn;
-        });
-    }
-    return { tabLogin, tabRegister };
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-    ensureRegisterFieldsExist();
     loadSavedDataFromCloud();
     if (window.lucide) lucide.createIcons();
     updateDateDisplay();
@@ -194,25 +129,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pastDebtDateEl = document.getElementById('past-debt-date');
     if (pastDebtDateEl) pastDebtDateEl.valueAsDate = new Date();
-
-    const { tabLogin, tabRegister } = getAuthTabButtons();
-    if (tabLogin && !tabLogin.getAttribute('onclick')) {
-        tabLogin.addEventListener('click', (e) => {
-            e.preventDefault();
-            switchAuthTab('login');
-        });
-    }
-    if (tabRegister && !tabRegister.getAttribute('onclick')) {
-        tabRegister.addEventListener('click', (e) => {
-            e.preventDefault();
-            switchAuthTab('register');
-        });
-    }
-
-    const authForm = document.getElementById('auth-form') || document.querySelector('#auth-screen form');
-    if (authForm && !authForm.getAttribute('onsubmit')) {
-        authForm.addEventListener('submit', handleAuthSubmit);
-    }
 });
 
 function updateDateDisplay() {
@@ -223,148 +139,74 @@ function updateDateDisplay() {
 
 function switchAuthTab(mode) {
     isRegisterMode = mode === 'register';
-    const { tabLogin, tabRegister } = getAuthTabButtons();
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
     const btnText = document.getElementById('auth-btn-text');
-    const regFields = ensureRegisterFieldsExist();
-
-    const activeTabClass = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-900 shadow-sm transition-all";
-    const inactiveTabClass = "flex-1 py-2 text-sm font-semibold rounded-lg text-slate-600 hover:text-emerald-800 transition-all";
+    const regFields = document.getElementById('register-extra-fields');
 
     if (isRegisterMode) {
-        if (tabRegister) tabRegister.className = activeTabClass;
-        if (tabLogin) tabLogin.className = inactiveTabClass;
-        if (btnText) {
-            btnText.innerText = "Crear Cuenta y Entrar";
-        } else {
-            const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
-            if (submitBtn) submitBtn.innerText = "Crear Cuenta y Entrar →";
-        }
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
+        if (btnText) btnText.innerText = "Crear Cuenta y Entrar";
         if (regFields) regFields.classList.remove('hidden');
     } else {
-        if (tabLogin) tabLogin.className = activeTabClass;
-        if (tabRegister) tabRegister.className = inactiveTabClass;
-        if (btnText) {
-            btnText.innerText = "Ingresar al Sistema";
-        } else {
-            const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
-            if (submitBtn) submitBtn.innerText = "Ingresar al Sistema →";
-        }
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
+        if (btnText) btnText.innerText = "Ingresar al Sistema";
         if (regFields) regFields.classList.add('hidden');
     }
 }
 
-async function handleAuthSubmit(e) {
-    if (e) e.preventDefault();
-    const emailInput = document.getElementById('email-input');
-    const passwordInput = document.getElementById('password-input');
-    const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
-    const btnText = document.getElementById('auth-btn-text');
+function handleAuthSubmit(e) {
+    e.preventDefault();
+    const email = document.getElementById('email-input').value.trim();
+    const password = document.getElementById('password-input').value.trim();
+    if (!email || !password) return;
 
-    const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
-    const password = passwordInput ? passwordInput.value.trim() : '';
+    if (isRegisterMode) {
+        const companyNameInput = document.getElementById('company-name-input');
+        const roleSelect = document.getElementById('role-select');
+        const companyName = companyNameInput ? companyNameInput.value.trim() : '';
+        const role = roleSelect ? roleSelect.value : 'admin';
 
-    if (!email || !password) {
-        alert("⚠️ Por favor escribe tu correo electrónico y contraseña.");
-        return;
-    }
-
-    const originalLabel = btnText ? btnText.innerText : (submitBtn ? submitBtn.innerText : '');
-    if (submitBtn) submitBtn.disabled = true;
-    if (btnText) btnText.innerText = isRegisterMode ? "Creando cuenta..." : "Ingresando...";
-
-    try {
-        // Asegurar que tenemos los datos más recientes de Realtime Database
-        if (!Array.isArray(state.registeredUsers) || state.registeredUsers.length === 0) {
-            try {
-                const snap = await get(ref(db, STORAGE_KEY));
-                if (snap.exists()) {
-                    const parsed = snap.val();
-                    state.companyName = parsed.companyName || state.companyName;
-                    state.registeredUsers = parsed.registeredUsers || [];
-                    state.clients = parsed.clients || [];
-                    state.products = parsed.products || [];
-                    state.productionLogs = parsed.productionLogs || [];
-                    state.salesHistory = parsed.salesHistory || [];
-                    state.expenses = parsed.expenses || [];
-                    state.milkProviders = parsed.milkProviders || [];
-                    state.dailyMilkLogs = parsed.dailyMilkLogs || [];
-                    state.milkPayments = parsed.milkPayments || [];
-                    state.yieldLogs = parsed.yieldLogs || [];
-                    state.clientDebts = parsed.clientDebts || [];
-                }
-            } catch (_) {
-                // Continuar con estado en memoria si no hay respuesta inmediata
-            }
+        if (companyName) {
+            state.companyName = companyName;
+            document.getElementById('app-company-name').innerText = companyName;
+            document.getElementById('receipt-company').innerText = companyName.toUpperCase();
         }
-
-        if (isRegisterMode) {
-            const alreadyExists = state.registeredUsers.some(u => (u.email || '').toLowerCase() === email);
-            if (alreadyExists) {
-                alert("⚠️ Este correo ya está registrado. Cambia a la pestaña 'Iniciar Sesión' para entrar.");
-                return;
-            }
-
-            const companyNameInput = document.getElementById('company-name-input');
-            const roleSelect = document.getElementById('role-select');
-            const companyName = companyNameInput ? companyNameInput.value.trim() : '';
-            const role = roleSelect ? roleSelect.value : 'admin';
-
-            if (companyName) {
-                state.companyName = companyName;
-                const appNameEl = document.getElementById('app-company-name');
-                const receiptCompanyEl = document.getElementById('receipt-company');
-                if (appNameEl) appNameEl.innerText = companyName;
-                if (receiptCompanyEl) receiptCompanyEl.innerText = companyName.toUpperCase();
-            }
-
-            state.registeredUsers.push({
-                email,
-                password,
-                role
-            });
-
-            state.currentUserRole = role;
-            state.currentUserEmail = email;
-            saveData();
+        state.currentUserRole = role;
+    } else {
+        if (email.toLowerCase().includes('conductor')) {
+            state.currentUserRole = 'conductor';
         } else {
-            const foundUser = state.registeredUsers.find(
-                u => (u.email || '').toLowerCase() === email && u.password === password
-            );
-
-            if (!foundUser) {
-                alert("⚠️ Correo o contraseña incorrectos. Si aún no tienes cuenta, toca 'Registrarse' arriba.");
-                return;
-            }
-
-            state.currentUserRole = foundUser.role || (email.includes('conductor') ? 'conductor' : 'admin');
-            state.currentUserEmail = foundUser.email;
+            state.currentUserRole = 'admin';
         }
-
-        document.getElementById('auth-screen').classList.add('hidden');
-        document.getElementById('main-app').classList.remove('hidden');
-
-        applyUserRoleInterface();
-
-        renderClientSelect();
-        renderPastDebtClientSelect();
-        renderProductsPOS();
-        renderInventoryTable();
-        renderProductionHistory();
-        renderSalesHistory();
-        renderExpensesTable();
-        renderMilkProvidersSelect();
-        renderProvidersTable();
-        renderMilkPaymentsTable();
-        renderDailyMilkTable();
-        renderYieldTable();
-        renderMonthlyBalance();
-        renderClientAccountsTable();
-        onYieldProductSelectChange();
-        if (window.lucide) lucide.createIcons();
-    } finally {
-        if (submitBtn) submitBtn.disabled = false;
-        if (btnText && originalLabel) btnText.innerText = originalLabel;
     }
+
+    state.currentUserEmail = email;
+    saveData();
+
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('main-app').classList.remove('hidden');
+
+    applyUserRoleInterface();
+
+    renderClientSelect();
+    renderPastDebtClientSelect();
+    renderProductsPOS();
+    renderInventoryTable();
+    renderProductionHistory();
+    renderSalesHistory();
+    renderExpensesTable();
+    renderMilkProvidersSelect();
+    renderProvidersTable();
+    renderMilkPaymentsTable();
+    renderDailyMilkTable();
+    renderYieldTable();
+    renderMonthlyBalance();
+    renderClientAccountsTable();
+    onYieldProductSelectChange();
+    if (window.lucide) lucide.createIcons();
 }
 
 function applyUserRoleInterface() {
@@ -397,7 +239,6 @@ function applyUserRoleInterface() {
 }
 
 function logout() {
-    state.currentUserEmail = null;
     document.getElementById('main-app').classList.add('hidden');
     document.getElementById('auth-screen').classList.remove('hidden');
 }
@@ -1803,6 +1644,7 @@ function renderMonthlyBalance() {
     let totalVentasMes = 0, totalNequiMes = 0, totalGastosMes = 0;
     let transactions = [];
 
+    // 1. Ventas y Abonos (Módulo 2 / Módulo 1)
     state.salesHistory.forEach(s => {
         totalVentasMes += s.total;
         if (s.paymentMethod === 'Nequi') totalNequiMes += s.total;
@@ -1821,6 +1663,7 @@ function renderMonthlyBalance() {
         });
     });
 
+    // 2. Pagos a Proveedores de Leche (Módulo 4: Acopio)
     state.milkPayments.forEach(p => {
         totalGastosMes += p.totalPaid;
         transactions.push({
@@ -1833,6 +1676,7 @@ function renderMonthlyBalance() {
         });
     });
 
+    // 3. Gastos e Inversiones (Excluyendo duplicados de pagos de leche)
     state.expenses.forEach(e => {
         if (e.name.startsWith('Pago Quincena Leche')) return;
 
@@ -1983,23 +1827,8 @@ function switchModule(modName) {
     });
 
     if (modName === 'cuentas') {
-        const pastDateInput = document.getElementById('past-debt-date');
-        if (pastDateInput && !pastDateInput.value) pastDateInput.valueAsDate = new Date();
         renderClientAccountsTable();
         renderPastDebtClientSelect();
-    }
-
-    if (modName === 'gastos') {
-        const expDateInput = document.getElementById('exp-date-entry');
-        if (expDateInput && !expDateInput.value) expDateInput.valueAsDate = new Date();
-        renderExpensesTable();
-    }
-
-    if (modName === 'inventario') {
-        const prodDateInput = document.getElementById('prod-date-entry');
-        if (prodDateInput && !prodDateInput.value) prodDateInput.valueAsDate = new Date();
-        renderInventoryTable();
-        renderProductionHistory();
     }
 
     if (modName === 'leche') {
