@@ -1,6 +1,12 @@
 // Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
+import {
+    getAuth,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    signOut
+} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 
 // Credenciales oficiales de tu proyecto en Firebase
 const firebaseConfig = {
@@ -14,10 +20,12 @@ const firebaseConfig = {
     measurementId: "G-NB2W7V2TGB"
 };
 
-// Inicializar Firebase y Base de Datos
+// Inicializar Firebase, Base de Datos y Autenticación
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 const STORAGE_KEY = 'lacteos_app_master_db';
+const REGISTRATION_ACCESS_CODE = 'VICTORIA2026';
 
 // ESTADO GENERAL DE LA APLICACIÓN
 let state = {
@@ -114,6 +122,40 @@ function saveData() {
     });
 }
 
+function ensureRegisterFieldsExist() {
+    let regFields = document.getElementById('register-extra-fields');
+    if (regFields) return regFields;
+
+    const passwordInput = document.getElementById('password-input');
+    const form = passwordInput ? passwordInput.closest('form') : document.querySelector('#auth-screen form');
+    if (!form) return null;
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    regFields = document.createElement('div');
+    regFields.id = 'register-extra-fields';
+    regFields.className = 'hidden space-y-3 pt-1';
+    regFields.innerHTML = `
+        <div>
+            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Tipo de Cuenta / Rol</label>
+            <select id="role-select" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-600">
+                <option value="admin">Administrador (Acceso Total)</option>
+                <option value="conductor">Conductor de Ruta (Solo Acopio Leche)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Código de Autorización del Negocio</label>
+            <input type="password" id="auth-code-input" placeholder="Ingresa el código maestro" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:border-emerald-600">
+        </div>
+    `;
+
+    if (submitBtn) {
+        form.insertBefore(regFields, submitBtn);
+    } else {
+        form.appendChild(regFields);
+    }
+    return regFields;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadSavedDataFromCloud();
     if (window.lucide) lucide.createIcons();
@@ -129,6 +171,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pastDebtDateEl = document.getElementById('past-debt-date');
     if (pastDebtDateEl) pastDebtDateEl.valueAsDate = new Date();
+
+    // Enlazar botones de Iniciar Sesión y Registrarse directamente por seguridad
+    const tabLogin = document.getElementById('tab-login');
+    const tabRegister = document.getElementById('tab-register');
+    if (tabLogin) {
+        tabLogin.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchAuthTab('login');
+        });
+    }
+    if (tabRegister) {
+        tabRegister.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchAuthTab('register');
+        });
+    }
+
+    const authForm = document.getElementById('auth-form') || document.querySelector('#auth-screen form');
+    if (authForm && !authForm.getAttribute('onsubmit')) {
+        authForm.addEventListener('submit', handleAuthSubmit);
+    }
 });
 
 function updateDateDisplay() {
@@ -142,71 +205,154 @@ function switchAuthTab(mode) {
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
     const btnText = document.getElementById('auth-btn-text');
-    const regFields = document.getElementById('register-extra-fields');
+    const regFields = ensureRegisterFieldsExist();
 
     if (isRegisterMode) {
         if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
         if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
-        if (btnText) btnText.innerText = "Crear Cuenta y Entrar";
+        if (btnText) {
+            btnText.innerText = "Crear Cuenta y Entrar";
+        } else {
+            const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
+            if (submitBtn) submitBtn.innerText = "Crear Cuenta y Entrar →";
+        }
         if (regFields) regFields.classList.remove('hidden');
     } else {
         if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
         if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
-        if (btnText) btnText.innerText = "Ingresar al Sistema";
+        if (btnText) {
+            btnText.innerText = "Ingresar al Sistema";
+        } else {
+            const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
+            if (submitBtn) submitBtn.innerText = "Ingresar al Sistema →";
+        }
         if (regFields) regFields.classList.add('hidden');
     }
 }
 
-function handleAuthSubmit(e) {
-    e.preventDefault();
-    const email = document.getElementById('email-input').value.trim();
-    const password = document.getElementById('password-input').value.trim();
-    if (!email || !password) return;
+function getSpanishAuthError(error) {
+    const code = error?.code || '';
+    if (code === 'auth/email-already-in-use') {
+        return "⚠️ Este correo ya está registrado. Cambia a la pestaña 'Iniciar Sesión' para entrar.";
+    }
+    if (code === 'auth/weak-password') {
+        return "⚠️ La contraseña debe tener mínimo 6 caracteres.";
+    }
+    if (code === 'auth/invalid-email') {
+        return "⚠️ El formato del correo electrónico no es válido.";
+    }
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+        return "⚠️ Correo o contraseña incorrectos. Revisa tus datos e intenta de nuevo.";
+    }
+    if (code === 'auth/operation-not-allowed') {
+        return "⚠️ El método Correo/Contraseña no está activado en Firebase Authentication.";
+    }
+    if (code === 'auth/network-request-failed') {
+        return "⚠️ Sin conexión a internet. Verifica tus datos móviles o Wi-Fi.";
+    }
+    return `⚠️ Error de acceso: ${error.message || 'No se pudo completar la operación.'}`;
+}
+
+async function handleAuthSubmit(e) {
+    if (e) e.preventDefault();
+    const emailInput = document.getElementById('email-input');
+    const passwordInput = document.getElementById('password-input');
+    const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
+    const btnText = document.getElementById('auth-btn-text');
+
+    const email = emailInput ? emailInput.value.trim() : '';
+    const password = passwordInput ? passwordInput.value.trim() : '';
+
+    if (!email || !password) {
+        alert("⚠️ Por favor escribe tu correo electrónico y contraseña.");
+        return;
+    }
 
     if (isRegisterMode) {
-        const companyNameInput = document.getElementById('company-name-input');
-        const roleSelect = document.getElementById('role-select');
-        const companyName = companyNameInput ? companyNameInput.value.trim() : '';
-        const role = roleSelect ? roleSelect.value : 'admin';
-
-        if (companyName) {
-            state.companyName = companyName;
-            document.getElementById('app-company-name').innerText = companyName;
-            document.getElementById('receipt-company').innerText = companyName.toUpperCase();
-        }
-        state.currentUserRole = role;
-    } else {
-        if (email.toLowerCase().includes('conductor')) {
-            state.currentUserRole = 'conductor';
-        } else {
-            state.currentUserRole = 'admin';
+        const authCodeEl = document.getElementById('auth-code-input');
+        if (authCodeEl && authCodeEl.value.trim().toUpperCase() !== REGISTRATION_ACCESS_CODE) {
+            alert("⚠️ Código de autorización incorrecto. Ingresa el código maestro del negocio.");
+            return;
         }
     }
 
-    state.currentUserEmail = email;
-    saveData();
+    const originalLabel = btnText ? btnText.innerText : (submitBtn ? submitBtn.innerText : '');
+    if (submitBtn) submitBtn.disabled = true;
+    if (btnText) btnText.innerText = isRegisterMode ? "Creando cuenta..." : "Ingresando...";
 
-    document.getElementById('auth-screen').classList.add('hidden');
-    document.getElementById('main-app').classList.remove('hidden');
+    try {
+        if (isRegisterMode) {
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const uid = userCredential.user.uid;
 
-    applyUserRoleInterface();
+            const companyNameInput = document.getElementById('company-name-input');
+            const roleSelect = document.getElementById('role-select');
+            const companyName = companyNameInput ? companyNameInput.value.trim() : '';
+            const role = roleSelect ? roleSelect.value : 'admin';
 
-    renderClientSelect();
-    renderPastDebtClientSelect();
-    renderProductsPOS();
-    renderInventoryTable();
-    renderProductionHistory();
-    renderSalesHistory();
-    renderExpensesTable();
-    renderMilkProvidersSelect();
-    renderProvidersTable();
-    renderMilkPaymentsTable();
-    renderDailyMilkTable();
-    renderYieldTable();
-    renderMonthlyBalance();
-    renderClientAccountsTable();
-    onYieldProductSelectChange();
-    if (window.lucide) lucide.createIcons();
+            if (companyName) {
+                state.companyName = companyName;
+                const appNameEl = document.getElementById('app-company-name');
+                const receiptCompanyEl = document.getElementById('receipt-company');
+                if (appNameEl) appNameEl.innerText = companyName;
+                if (receiptCompanyEl) receiptCompanyEl.innerText = companyName.toUpperCase();
+            }
+
+            state.currentUserRole = role;
+            state.currentUserEmail = email;
+
+            await set(ref(db, `users/${uid}`), {
+                email,
+                role,
+                createdAt: new Date().toISOString()
+            });
+
+            saveData();
+        } else {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const uid = userCredential.user.uid;
+            state.currentUserEmail = email;
+
+            try {
+                const userSnap = await get(ref(db, `users/${uid}`));
+                if (userSnap.exists() && userSnap.val().role) {
+                    state.currentUserRole = userSnap.val().role;
+                } else {
+                    state.currentUserRole = email.toLowerCase().includes('conductor') ? 'conductor' : 'admin';
+                }
+            } catch (_) {
+                state.currentUserRole = email.toLowerCase().includes('conductor') ? 'conductor' : 'admin';
+            }
+        }
+
+        document.getElementById('auth-screen').classList.add('hidden');
+        document.getElementById('main-app').classList.remove('hidden');
+
+        applyUserRoleInterface();
+
+        renderClientSelect();
+        renderPastDebtClientSelect();
+        renderProductsPOS();
+        renderInventoryTable();
+        renderProductionHistory();
+        renderSalesHistory();
+        renderExpensesTable();
+        renderMilkProvidersSelect();
+        renderProvidersTable();
+        renderMilkPaymentsTable();
+        renderDailyMilkTable();
+        renderYieldTable();
+        renderMonthlyBalance();
+        renderClientAccountsTable();
+        onYieldProductSelectChange();
+        if (window.lucide) lucide.createIcons();
+    } catch (error) {
+        console.error("Error de autenticación:", error);
+        alert(getSpanishAuthError(error));
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+        if (btnText && originalLabel) btnText.innerText = originalLabel;
+    }
 }
 
 function applyUserRoleInterface() {
@@ -238,7 +384,12 @@ function applyUserRoleInterface() {
     }
 }
 
-function logout() {
+async function logout() {
+    try {
+        await signOut(auth);
+    } catch (e) {
+        console.error("Error al cerrar sesión:", e);
+    }
     document.getElementById('main-app').classList.add('hidden');
     document.getElementById('auth-screen').classList.remove('hidden');
 }
