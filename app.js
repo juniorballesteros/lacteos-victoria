@@ -1,14 +1,8 @@
-// Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
+// Importar únicamente Firebase App y Realtime Database (sin Firebase Auth)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
-import {
-    getAuth,
-    signInWithEmailAndPassword,
-    createUserWithEmailAndPassword,
-    signOut
-} from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
 
-// Credenciales oficiales de tu proyecto en Firebase
+// Configuración de tu proyecto en Firebase Realtime Database
 const firebaseConfig = {
     apiKey: "AIzaSyAXWC6FgkeLlOtzH4_gPTwkRQzKrbAPCkE",
     authDomain: "lacteosvictoria-2b574.firebaseapp.com",
@@ -20,10 +14,9 @@ const firebaseConfig = {
     measurementId: "G-NB2W7V2TGB"
 };
 
-// Inicializar Firebase, Base de Datos y Autenticación
+// Inicializar Firebase y Base de Datos en Tiempo Real
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const auth = getAuth(app);
 const STORAGE_KEY = 'lacteos_app_master_db';
 
 // ESTADO GENERAL DE LA APLICACIÓN
@@ -31,6 +24,7 @@ let state = {
     companyName: 'Lácteos Victoria',
     currentUserRole: 'admin',
     currentUserEmail: null,
+    registeredUsers: [],
     clients: [],
     products: [],
     productionLogs: [],
@@ -63,6 +57,7 @@ function loadSavedDataFromCloud() {
         const parsed = snapshot.val();
         if (parsed) {
             state.companyName = parsed.companyName || state.companyName;
+            state.registeredUsers = parsed.registeredUsers || [];
             state.clients = parsed.clients || [];
             state.products = parsed.products || [];
             state.productionLogs = parsed.productionLogs || [];
@@ -76,8 +71,10 @@ function loadSavedDataFromCloud() {
 
             const appNameEl = document.getElementById('app-company-name');
             const receiptCompanyEl = document.getElementById('receipt-company');
+            const titleEl = document.getElementById('display-company-title');
             if (appNameEl) appNameEl.innerText = state.companyName;
             if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
+            if (titleEl) titleEl.innerText = state.companyName;
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
@@ -104,6 +101,7 @@ function loadSavedDataFromCloud() {
 function saveData() {
     const dataToSave = {
         companyName: state.companyName,
+        registeredUsers: state.registeredUsers,
         clients: state.clients,
         products: state.products,
         productionLogs: state.productionLogs,
@@ -122,7 +120,7 @@ function saveData() {
 }
 
 function ensureRegisterFieldsExist() {
-    // Eliminar cualquier campo de código maestro que exista en el HTML
+    // Limpiar cualquier campo de código de autorización si quedó en el HTML
     const oldCodeInput = document.getElementById('auth-code-input');
     if (oldCodeInput) {
         const wrapper = oldCodeInput.closest('div');
@@ -255,29 +253,6 @@ function switchAuthTab(mode) {
     }
 }
 
-function getSpanishAuthError(error) {
-    const code = error?.code || '';
-    if (code === 'auth/email-already-in-use') {
-        return "⚠️ Este correo ya está registrado. Cambia a la pestaña 'Iniciar Sesión' para entrar.";
-    }
-    if (code === 'auth/weak-password') {
-        return "⚠️ La contraseña debe tener mínimo 6 caracteres.";
-    }
-    if (code === 'auth/invalid-email') {
-        return "⚠️ El formato del correo electrónico no es válido.";
-    }
-    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
-        return "⚠️ Correo o contraseña incorrectos. Revisa tus datos e intenta de nuevo.";
-    }
-    if (code === 'auth/operation-not-allowed') {
-        return "⚠️ El método Correo/Contraseña no está activado en Firebase Authentication.";
-    }
-    if (code === 'auth/network-request-failed') {
-        return "⚠️ Sin conexión a internet. Verifica tus datos móviles o Wi-Fi.";
-    }
-    return `⚠️ Error de acceso: ${error.message || 'No se pudo completar la operación.'}`;
-}
-
 async function handleAuthSubmit(e) {
     if (e) e.preventDefault();
     const emailInput = document.getElementById('email-input');
@@ -285,7 +260,7 @@ async function handleAuthSubmit(e) {
     const submitBtn = document.querySelector('#auth-screen button[type="submit"]');
     const btnText = document.getElementById('auth-btn-text');
 
-    const email = emailInput ? emailInput.value.trim() : '';
+    const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
     const password = passwordInput ? passwordInput.value.trim() : '';
 
     if (!email || !password) {
@@ -298,9 +273,36 @@ async function handleAuthSubmit(e) {
     if (btnText) btnText.innerText = isRegisterMode ? "Creando cuenta..." : "Ingresando...";
 
     try {
+        // Asegurar que tenemos los datos más recientes de Realtime Database
+        if (!Array.isArray(state.registeredUsers) || state.registeredUsers.length === 0) {
+            try {
+                const snap = await get(ref(db, STORAGE_KEY));
+                if (snap.exists()) {
+                    const parsed = snap.val();
+                    state.companyName = parsed.companyName || state.companyName;
+                    state.registeredUsers = parsed.registeredUsers || [];
+                    state.clients = parsed.clients || [];
+                    state.products = parsed.products || [];
+                    state.productionLogs = parsed.productionLogs || [];
+                    state.salesHistory = parsed.salesHistory || [];
+                    state.expenses = parsed.expenses || [];
+                    state.milkProviders = parsed.milkProviders || [];
+                    state.dailyMilkLogs = parsed.dailyMilkLogs || [];
+                    state.milkPayments = parsed.milkPayments || [];
+                    state.yieldLogs = parsed.yieldLogs || [];
+                    state.clientDebts = parsed.clientDebts || [];
+                }
+            } catch (_) {
+                // Continuar con estado en memoria si no hay respuesta inmediata
+            }
+        }
+
         if (isRegisterMode) {
-            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-            const uid = userCredential.user.uid;
+            const alreadyExists = state.registeredUsers.some(u => (u.email || '').toLowerCase() === email);
+            if (alreadyExists) {
+                alert("⚠️ Este correo ya está registrado. Cambia a la pestaña 'Iniciar Sesión' para entrar.");
+                return;
+            }
 
             const companyNameInput = document.getElementById('company-name-input');
             const roleSelect = document.getElementById('role-select');
@@ -315,31 +317,27 @@ async function handleAuthSubmit(e) {
                 if (receiptCompanyEl) receiptCompanyEl.innerText = companyName.toUpperCase();
             }
 
-            state.currentUserRole = role;
-            state.currentUserEmail = email;
-
-            await set(ref(db, `users/${uid}`), {
+            state.registeredUsers.push({
                 email,
-                role,
-                createdAt: new Date().toISOString()
+                password,
+                role
             });
 
+            state.currentUserRole = role;
+            state.currentUserEmail = email;
             saveData();
         } else {
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            const uid = userCredential.user.uid;
-            state.currentUserEmail = email;
+            const foundUser = state.registeredUsers.find(
+                u => (u.email || '').toLowerCase() === email && u.password === password
+            );
 
-            try {
-                const userSnap = await get(ref(db, `users/${uid}`));
-                if (userSnap.exists() && userSnap.val().role) {
-                    state.currentUserRole = userSnap.val().role;
-                } else {
-                    state.currentUserRole = email.toLowerCase().includes('conductor') ? 'conductor' : 'admin';
-                }
-            } catch (_) {
-                state.currentUserRole = email.toLowerCase().includes('conductor') ? 'conductor' : 'admin';
+            if (!foundUser) {
+                alert("⚠️ Correo o contraseña incorrectos. Si aún no tienes cuenta, toca 'Registrarse' arriba.");
+                return;
             }
+
+            state.currentUserRole = foundUser.role || (email.includes('conductor') ? 'conductor' : 'admin');
+            state.currentUserEmail = foundUser.email;
         }
 
         document.getElementById('auth-screen').classList.add('hidden');
@@ -363,9 +361,6 @@ async function handleAuthSubmit(e) {
         renderClientAccountsTable();
         onYieldProductSelectChange();
         if (window.lucide) lucide.createIcons();
-    } catch (error) {
-        console.error("Error de autenticación:", error);
-        alert(getSpanishAuthError(error));
     } finally {
         if (submitBtn) submitBtn.disabled = false;
         if (btnText && originalLabel) btnText.innerText = originalLabel;
@@ -401,12 +396,8 @@ function applyUserRoleInterface() {
     }
 }
 
-async function logout() {
-    try {
-        await signOut(auth);
-    } catch (e) {
-        console.error("Error al cerrar sesión:", e);
-    }
+function logout() {
+    state.currentUserEmail = null;
     document.getElementById('main-app').classList.add('hidden');
     document.getElementById('auth-screen').classList.remove('hidden');
 }
@@ -1992,8 +1983,23 @@ function switchModule(modName) {
     });
 
     if (modName === 'cuentas') {
+        const pastDateInput = document.getElementById('past-debt-date');
+        if (pastDateInput && !pastDateInput.value) pastDateInput.valueAsDate = new Date();
         renderClientAccountsTable();
         renderPastDebtClientSelect();
+    }
+
+    if (modName === 'gastos') {
+        const expDateInput = document.getElementById('exp-date-entry');
+        if (expDateInput && !expDateInput.value) expDateInput.valueAsDate = new Date();
+        renderExpensesTable();
+    }
+
+    if (modName === 'inventario') {
+        const prodDateInput = document.getElementById('prod-date-entry');
+        if (prodDateInput && !prodDateInput.value) prodDateInput.valueAsDate = new Date();
+        renderInventoryTable();
+        renderProductionHistory();
     }
 
     if (modName === 'leche') {
