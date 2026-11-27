@@ -1,6 +1,6 @@
 // Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
 
 // Credenciales oficiales de tu proyecto en Firebase
 const firebaseConfig = {
@@ -17,26 +17,37 @@ const firebaseConfig = {
 // Inicializar Firebase y Base de Datos
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const STORAGE_KEY = 'lacteos_app_master_db';
+
+// Claves de almacenamiento en Firebase
+const DEFAULT_STORAGE_KEY = 'lacteos_app_master_db';
+const USERS_REGISTRY_KEY = 'lacteos_users_registry';
+const LOCAL_USERS_CACHE_KEY = 'lacteos_local_users_cache_v3';
+const PRIMARY_OWNER_EMAIL = 'ballesterosjunior3@gmail.com';
+
+let currentWorkspaceKey = null;
+let unsubscribeWorkspaceListener = null;
+
+function createEmptyAppState() {
+    return {
+        companyName: 'Lácteos Victoria',
+        currentUserRole: 'admin',
+        currentUserEmail: null,
+        clients: [],
+        products: [],
+        productionLogs: [],
+        salesHistory: [],
+        expenses: [],
+        milkProviders: [],
+        dailyMilkLogs: [],
+        milkPayments: [],
+        yieldLogs: [],
+        clientDebts: [],
+        cart: []
+    };
+}
 
 // ESTADO GENERAL DE LA APLICACIÓN
-let state = {
-    companyName: 'Lácteos Victoria',
-    currentUserRole: 'admin',
-    currentUserEmail: null,
-    users: [],
-    clients: [],
-    products: [],
-    productionLogs: [],
-    salesHistory: [],
-    expenses: [],
-    milkProviders: [],
-    dailyMilkLogs: [],
-    milkPayments: [],
-    yieldLogs: [],
-    clientDebts: [],
-    cart: []
-};
+let state = createEmptyAppState();
 
 let currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
 let expandedDebtIds = new Set();
@@ -51,13 +62,130 @@ function getLocalDateString() {
     return `${year}-${month}-${day}`;
 }
 
-function loadSavedDataFromCloud() {
-    const dbRef = ref(db, STORAGE_KEY);
-    onValue(dbRef, (snapshot) => {
+function emailToFirebaseKey(email) {
+    return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+}
+
+function normalizeCompanySlug(name) {
+    return (name || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
+function resolveWorkspaceForAccount(email, role, companyName) {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanCompany = (companyName || '').trim();
+    const slug = normalizeCompanySlug(cleanCompany);
+
+    // La cuenta principal o la empresa Lácteos Victoria usan la base maestra original
+    if (
+        cleanEmail === PRIMARY_OWNER_EMAIL ||
+        slug === 'lacteos_victoria' ||
+        (role === 'conductor' && !slug)
+    ) {
+        return {
+            workspaceKey: DEFAULT_STORAGE_KEY,
+            resolvedCompanyName: 'Lácteos Victoria'
+        };
+    }
+
+    const safeSlug = slug || ('empresa_' + emailToFirebaseKey(cleanEmail));
+    return {
+        workspaceKey: `lacteos_ws_${safeSlug}`,
+        resolvedCompanyName: cleanCompany || 'Mi Empresa Láctea'
+    };
+}
+
+function getLocalUsersCache() {
+    try {
+        return JSON.parse(localStorage.getItem(LOCAL_USERS_CACHE_KEY) || '{}');
+    } catch (_) {
+        return {};
+    }
+}
+
+function saveUserToLocalCache(emailKey, userRecord) {
+    try {
+        const cache = getLocalUsersCache();
+        cache[emailKey] = userRecord;
+        localStorage.setItem(LOCAL_USERS_CACHE_KEY, JSON.stringify(cache));
+    } catch (err) {
+        console.warn("No se pudo guardar respaldo local de usuario:", err);
+    }
+}
+
+async function fetchRegisteredUser(email) {
+    const emailKey = emailToFirebaseKey(email);
+    try {
+        const snap = await get(ref(db, `${USERS_REGISTRY_KEY}/${emailKey}`));
+        if (snap.exists()) {
+            const userData = snap.val();
+            saveUserToLocalCache(emailKey, userData);
+            return userData;
+        }
+    } catch (err) {
+        console.warn("Consultando respaldo local por fallo de red en registro:", err);
+    }
+    const localCache = getLocalUsersCache();
+    return localCache[emailKey] || null;
+}
+
+async function persistRegisteredUser(userRecord) {
+    const emailKey = emailToFirebaseKey(userRecord.email);
+    saveUserToLocalCache(emailKey, userRecord);
+    await set(ref(db, `${USERS_REGISTRY_KEY}/${emailKey}`), userRecord);
+}
+
+function refreshAllVisibleTables() {
+    const appNameEl = document.getElementById('app-company-name');
+    const receiptCompanyEl = document.getElementById('receipt-company');
+    if (appNameEl) appNameEl.innerText = state.companyName;
+    if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
+
+    if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
+        renderClientSelect();
+        renderPastDebtClientSelect();
+        renderProductsPOS();
+        renderInventoryTable();
+        renderProductionHistory();
+        renderSalesHistory();
+        renderExpensesTable();
+        renderMilkProvidersSelect();
+        renderProvidersTable();
+        renderMilkPaymentsTable();
+        renderDailyMilkTable();
+        renderYieldTable();
+        renderMonthlyBalance();
+        renderClientAccountsTable();
+        onYieldDateChange();
+        onYieldProductSelectChange();
+    }
+}
+
+function subscribeToWorkspace(workspaceKey, accountRecord) {
+    if (unsubscribeWorkspaceListener) {
+        unsubscribeWorkspaceListener();
+        unsubscribeWorkspaceListener = null;
+    }
+
+    currentWorkspaceKey = workspaceKey;
+    const dbRef = ref(db, workspaceKey);
+
+    unsubscribeWorkspaceListener = onValue(dbRef, (snapshot) => {
         const parsed = snapshot.val();
         if (parsed) {
-            state.companyName = parsed.companyName || state.companyName;
-            state.users = parsed.users || [];
+            let resolvedName = parsed.companyName || accountRecord.companyName || 'Lácteos Victoria';
+            // Restaurar el nombre oficial de Lácteos Victoria si una prueba anterior lo sobrescribió
+            if (workspaceKey === DEFAULT_STORAGE_KEY && resolvedName.trim().toLowerCase() === 'pipe') {
+                resolvedName = 'Lácteos Victoria';
+                set(ref(db, `${DEFAULT_STORAGE_KEY}/companyName`), 'Lácteos Victoria').catch(() => {});
+            }
+
+            state.companyName = resolvedName;
             state.clients = parsed.clients || [];
             state.products = parsed.products || [];
             state.productionLogs = parsed.productionLogs || [];
@@ -68,38 +196,25 @@ function loadSavedDataFromCloud() {
             state.milkPayments = parsed.milkPayments || [];
             state.yieldLogs = parsed.yieldLogs || [];
             state.clientDebts = parsed.clientDebts || [];
-
-            const appNameEl = document.getElementById('app-company-name');
-            const receiptCompanyEl = document.getElementById('receipt-company');
-            if (appNameEl) appNameEl.innerText = state.companyName;
-            if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
-
-            if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
-                renderClientSelect();
-                renderPastDebtClientSelect();
-                renderProductsPOS();
-                renderInventoryTable();
-                renderProductionHistory();
-                renderSalesHistory();
-                renderExpensesTable();
-                renderMilkProvidersSelect();
-                renderProvidersTable();
-                renderMilkPaymentsTable();
-                renderDailyMilkTable();
-                renderYieldTable();
-                renderMonthlyBalance();
-                renderClientAccountsTable();
-                onYieldDateChange();
-                onYieldProductSelectChange();
-            }
+        } else {
+            // Espacio de trabajo nuevo e independiente (sin compartir datos de otras cuentas)
+            const fresh = createEmptyAppState();
+            fresh.companyName = accountRecord.companyName || 'Mi Empresa Láctea';
+            fresh.currentUserRole = accountRecord.role || 'admin';
+            fresh.currentUserEmail = accountRecord.email;
+            state = fresh;
+            saveData();
         }
+
+        refreshAllVisibleTables();
     });
 }
 
 function saveData() {
+    if (!currentWorkspaceKey) return;
+
     const dataToSave = {
         companyName: state.companyName,
-        users: state.users,
         clients: state.clients,
         products: state.products,
         productionLogs: state.productionLogs,
@@ -112,23 +227,17 @@ function saveData() {
         clientDebts: state.clientDebts
     };
 
-    set(ref(db, STORAGE_KEY), dataToSave).catch((error) => {
+    set(ref(db, currentWorkspaceKey), dataToSave).catch((error) => {
         console.error("Error al sincronizar con Firebase:", error);
     });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadSavedDataFromCloud();
     if (window.lucide) lucide.createIcons();
     updateDateDisplay();
 
     const titleEl = document.getElementById('display-company-title');
-    const appNameEl = document.getElementById('app-company-name');
-    const receiptCompanyEl = document.getElementById('receipt-company');
-
-    if (titleEl) titleEl.innerText = state.companyName;
-    if (appNameEl) appNameEl.innerText = state.companyName;
-    if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
+    if (titleEl) titleEl.innerText = 'Lácteos Victoria';
 
     const pastDebtDateEl = document.getElementById('past-debt-date');
     if (pastDebtDateEl) pastDebtDateEl.valueAsDate = new Date();
@@ -140,35 +249,55 @@ function updateDateDisplay() {
     if (dateEl) dateEl.innerText = now.toLocaleDateString('es-CO');
 }
 
+function handleRegisterRoleChange() {
+    const roleSelect = document.getElementById('user-role-input');
+    const companyLabel = document.getElementById('company-name-label');
+    const companyInput = document.getElementById('company-name-input');
+    const companyHint = document.getElementById('company-name-hint');
+    if (!roleSelect) return;
+
+    if (roleSelect.value === 'conductor') {
+        if (companyLabel) companyLabel.innerText = 'Empresa / Quesera donde trabajas';
+        if (companyInput) companyInput.placeholder = 'Ej: Lácteos Victoria';
+        if (companyHint) companyHint.innerText = 'Te conectará directamente al módulo de Acopio de Leche de esa empresa.';
+    } else {
+        if (companyLabel) companyLabel.innerText = 'Nombre de tu Empresa / Quesera';
+        if (companyInput) companyInput.placeholder = 'Ej: Lácteos Victoria';
+        if (companyHint) companyHint.innerText = 'Cada empresa nueva crea su propia base de datos independiente.';
+    }
+}
+
 function checkPasswordStrength(password) {
     const bar = document.getElementById('strength-bar');
     const label = document.getElementById('strength-label');
     if (!bar || !label) return;
 
-    if (!password) {
-        bar.className = "bg-red-500 h-full w-1/3 transition-all duration-300";
-        label.className = "text-red-500 font-bold";
-        label.innerText = "Débil";
+    if (!password || password.length === 0) {
+        bar.className = 'bg-red-500 h-full w-1/4 transition-all duration-300';
+        label.className = 'text-red-500 font-bold';
+        label.innerText = 'Débil';
         return;
     }
 
     let score = 0;
     if (password.length >= 6) score++;
-    if (password.length >= 8 && /[A-Z]/.test(password) && /[0-9]/.test(password)) score++;
-    if (/[^A-Za-z0-9]/.test(password) || password.length >= 10) score++;
+    if (password.length >= 9) score++;
+    if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
 
-    if (score <= 1) {
-        bar.className = "bg-red-500 h-full w-1/3 transition-all duration-300";
-        label.className = "text-red-500 font-bold";
-        label.innerText = "Débil";
-    } else if (score === 2) {
-        bar.className = "bg-amber-500 h-full w-2/3 transition-all duration-300";
-        label.className = "text-amber-600 font-bold";
-        label.innerText = "Media";
+    if (score <= 2) {
+        bar.className = 'bg-red-500 h-full w-1/3 transition-all duration-300';
+        label.className = 'text-red-500 font-bold';
+        label.innerText = 'Débil';
+    } else if (score <= 3) {
+        bar.className = 'bg-amber-500 h-full w-2/3 transition-all duration-300';
+        label.className = 'text-amber-600 font-bold';
+        label.innerText = 'Media';
     } else {
-        bar.className = "bg-emerald-500 h-full w-full transition-all duration-300";
-        label.className = "text-emerald-600 font-bold";
-        label.innerText = "Fuerte";
+        bar.className = 'bg-emerald-500 h-full w-full transition-all duration-300';
+        label.className = 'text-emerald-600 font-bold';
+        label.innerText = 'Fuerte';
     }
 }
 
@@ -176,125 +305,152 @@ function switchAuthTab(mode) {
     isRegisterMode = mode === 'register';
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
-    const btnText = document.getElementById('auth-btn-text') || document.querySelector('#auth-btn span');
     const roleField = document.getElementById('role-selection-field');
     const companyField = document.getElementById('company-name-field');
+    const companyInput = document.getElementById('company-name-input');
     const strengthContainer = document.getElementById('password-strength-container');
-    const passwordInput = document.getElementById('password-input');
+    const authBtn = document.getElementById('auth-btn');
 
     if (isRegisterMode) {
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-600 hover:text-emerald-900 transition-all";
-        if (btnText) btnText.innerText = "Crear Cuenta y Entrar";
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
         if (roleField) roleField.classList.remove('hidden');
         if (companyField) companyField.classList.remove('hidden');
+        if (companyInput) companyInput.required = true;
         if (strengthContainer) strengthContainer.classList.remove('hidden');
-        if (passwordInput) checkPasswordStrength(passwordInput.value);
+        if (authBtn) {
+            authBtn.innerHTML = '<span>Crear Cuenta y Entrar</span><i data-lucide="user-plus" class="w-5 h-5"></i>';
+        }
+        handleRegisterRoleChange();
     } else {
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-600 hover:text-emerald-900 transition-all";
-        if (btnText) btnText.innerText = "Ingresar al Sistema";
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
         if (roleField) roleField.classList.add('hidden');
         if (companyField) companyField.classList.add('hidden');
+        if (companyInput) companyInput.required = false;
         if (strengthContainer) strengthContainer.classList.add('hidden');
+        if (authBtn) {
+            authBtn.innerHTML = '<span>Ingresar al Sistema</span><i data-lucide="arrow-right" class="w-5 h-5"></i>';
+        }
     }
+
     if (window.lucide) lucide.createIcons();
 }
 
-function handleAuthSubmit(e) {
-    e.preventDefault();
-    const email = document.getElementById('email-input').value.trim();
-    const password = document.getElementById('password-input').value.trim();
-    if (!email || !password) return;
+function enterAuthenticatedSession(accountRecord) {
+    state = createEmptyAppState();
+    state.companyName = accountRecord.companyName || 'Lácteos Victoria';
+    state.currentUserRole = accountRecord.role || 'admin';
+    state.currentUserEmail = accountRecord.email;
 
-    if (!Array.isArray(state.users)) state.users = [];
-    const normalizedEmail = email.toLowerCase();
+    const appNameEl = document.getElementById('app-company-name');
+    const receiptCompanyEl = document.getElementById('receipt-company');
+    if (appNameEl) appNameEl.innerText = state.companyName;
+    if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
 
-    if (isRegisterMode) {
-        if (password.length < 4) {
-            alert("⚠️ La contraseña debe tener al menos 4 caracteres.");
-            return;
-        }
-
-        const alreadyExists = state.users.some(u => (u.email || '').toLowerCase() === normalizedEmail);
-        if (alreadyExists) {
-            alert("⚠️ Este correo ya está registrado. Cambia a 'Iniciar Sesión' para ingresar.");
-            return;
-        }
-
-        const companyNameInput = document.getElementById('company-name-input');
-        const roleSelect = document.getElementById('user-role-input');
-        const companyName = companyNameInput ? companyNameInput.value.trim() : '';
-        const role = roleSelect ? roleSelect.value : 'admin';
-
-        if (companyName && role === 'admin') {
-            state.companyName = companyName;
-            const appNameEl = document.getElementById('app-company-name');
-            const titleEl = document.getElementById('display-company-title');
-            const receiptCompanyEl = document.getElementById('receipt-company');
-            if (appNameEl) appNameEl.innerText = companyName;
-            if (titleEl) titleEl.innerText = companyName;
-            if (receiptCompanyEl) receiptCompanyEl.innerText = companyName.toUpperCase();
-        }
-
-        state.users.push({
-            email,
-            password,
-            role,
-            companyName: companyName || state.companyName
-        });
-
-        state.currentUserRole = role;
-        state.currentUserEmail = email;
-        saveData();
-    } else {
-        const existingUser = state.users.find(u => (u.email || '').toLowerCase() === normalizedEmail);
-
-        if (existingUser) {
-            if (existingUser.password !== password) {
-                alert("⚠️ Contraseña incorrecta. Verifica tus datos e intenta de nuevo.");
-                return;
-            }
-            state.currentUserRole = existingUser.role || 'admin';
-            state.currentUserEmail = existingUser.email;
-        } else if (state.users.length === 0) {
-            const initialRole = normalizedEmail.includes('conductor') ? 'conductor' : 'admin';
-            state.users.push({
-                email,
-                password,
-                role: initialRole,
-                companyName: state.companyName
-            });
-            state.currentUserRole = initialRole;
-            state.currentUserEmail = email;
-            saveData();
-        } else {
-            alert("⚠️ Este correo no está registrado. Toca la pestaña 'Registrarse' para crear tu cuenta nueva.");
-            return;
-        }
-    }
+    subscribeToWorkspace(accountRecord.workspaceKey, accountRecord);
 
     document.getElementById('auth-screen').classList.add('hidden');
     document.getElementById('main-app').classList.remove('hidden');
 
     applyUserRoleInterface();
-
-    renderClientSelect();
-    renderPastDebtClientSelect();
-    renderProductsPOS();
-    renderInventoryTable();
-    renderProductionHistory();
-    renderSalesHistory();
-    renderExpensesTable();
-    renderMilkProvidersSelect();
-    renderProvidersTable();
-    renderMilkPaymentsTable();
-    renderDailyMilkTable();
-    renderYieldTable();
-    renderMonthlyBalance();
-    renderClientAccountsTable();
-    onYieldProductSelectChange();
+    refreshAllVisibleTables();
     if (window.lucide) lucide.createIcons();
+}
+
+async function handleAuthSubmit(e) {
+    e.preventDefault();
+    const emailInput = document.getElementById('email-input');
+    const passwordInput = document.getElementById('password-input');
+    const authBtn = document.getElementById('auth-btn');
+
+    const email = emailInput.value.trim().toLowerCase();
+    const password = passwordInput.value.trim();
+    if (!email || !password) return;
+
+    const originalBtnHtml = authBtn ? authBtn.innerHTML : '';
+    if (authBtn) {
+        authBtn.disabled = true;
+        authBtn.innerHTML = '<span>Verificando en la nube...</span>';
+    }
+
+    try {
+        const existingUser = await fetchRegisteredUser(email);
+
+        if (isRegisterMode) {
+            if (existingUser) {
+                alert("⚠️ Este correo ya está registrado. Cambia a la pestaña 'Iniciar Sesión' para ingresar con tu clave.");
+                switchAuthTab('login');
+                return;
+            }
+
+            const roleSelect = document.getElementById('user-role-input');
+            const companyNameInput = document.getElementById('company-name-input');
+            const role = roleSelect ? roleSelect.value : 'admin';
+            const rawCompanyName = companyNameInput ? companyNameInput.value.trim() : '';
+
+            if (role === 'admin' && !rawCompanyName && email !== PRIMARY_OWNER_EMAIL) {
+                alert("⚠️ Escribe el nombre de tu Empresa o Quesera para crear tu cuenta independiente.");
+                return;
+            }
+
+            const { workspaceKey, resolvedCompanyName } = resolveWorkspaceForAccount(email, role, rawCompanyName);
+
+            const newAccount = {
+                email,
+                password,
+                role,
+                companyName: resolvedCompanyName,
+                workspaceKey,
+                createdAt: new Date().toISOString()
+            };
+
+            await persistRegisteredUser(newAccount);
+            enterAuthenticatedSession(newAccount);
+        } else {
+            if (existingUser) {
+                if (existingUser.password !== password) {
+                    alert("❌ Contraseña incorrecta para este correo. Verifica e intenta nuevamente.");
+                    return;
+                }
+                // Asegurar que la cuenta principal siempre apunte a la base maestra de Lácteos Victoria
+                if (email === PRIMARY_OWNER_EMAIL && existingUser.workspaceKey !== DEFAULT_STORAGE_KEY) {
+                    existingUser.workspaceKey = DEFAULT_STORAGE_KEY;
+                    existingUser.companyName = 'Lácteos Victoria';
+                    existingUser.role = 'admin';
+                    await persistRegisteredUser(existingUser);
+                }
+                enterAuthenticatedSession(existingUser);
+                return;
+            }
+
+            // Recuperación automática de tu cuenta base anterior (ballesterosjunior3@gmail.com)
+            if (email === PRIMARY_OWNER_EMAIL) {
+                const ownerAccount = {
+                    email: PRIMARY_OWNER_EMAIL,
+                    password,
+                    role: 'admin',
+                    companyName: 'Lácteos Victoria',
+                    workspaceKey: DEFAULT_STORAGE_KEY,
+                    createdAt: new Date().toISOString()
+                };
+                await persistRegisteredUser(ownerAccount);
+                enterAuthenticatedSession(ownerAccount);
+                return;
+            }
+
+            alert("⚠️ Este correo no está registrado. Toca la pestaña 'Registrarse' para crear tu cuenta nueva.");
+        }
+    } catch (err) {
+        console.error("Error de autenticación:", err);
+        alert("⚠️ No se pudo conectar con Firebase. Revisa tu conexión a internet e intenta de nuevo.");
+    } finally {
+        if (authBtn) {
+            authBtn.disabled = false;
+            authBtn.innerHTML = originalBtnHtml;
+            if (window.lucide) lucide.createIcons();
+        }
+    }
 }
 
 function applyUserRoleInterface() {
@@ -315,7 +471,7 @@ function applyUserRoleInterface() {
         if (tabPagos) tabPagos.classList.add('hidden');
     } else {
         if (navModules) navModules.classList.remove('hidden');
-        if (headerRoleBadge) headerRoleBadge.innerText = "Panel de Administración (Dueño)";
+        if (headerRoleBadge) headerRoleBadge.innerText = `Panel de Administración (${state.currentUserEmail || 'Dueño'})`;
         if (configBtnTop) configBtnTop.classList.remove('hidden');
 
         const tabProv = document.getElementById('milk-tab-proveedores');
@@ -327,6 +483,19 @@ function applyUserRoleInterface() {
 }
 
 function logout() {
+    if (unsubscribeWorkspaceListener) {
+        unsubscribeWorkspaceListener();
+        unsubscribeWorkspaceListener = null;
+    }
+    currentWorkspaceKey = null;
+    state = createEmptyAppState();
+
+    const passwordInput = document.getElementById('password-input');
+    if (passwordInput) passwordInput.value = '';
+
+    const titleEl = document.getElementById('display-company-title');
+    if (titleEl) titleEl.innerText = 'Lácteos Victoria';
+
     document.getElementById('main-app').classList.add('hidden');
     document.getElementById('auth-screen').classList.remove('hidden');
 }
@@ -1882,14 +2051,20 @@ function closeConfigModal() {
     document.getElementById('modal-config').classList.remove('flex');
 }
 
-function saveCompanyName() {
+async function saveCompanyName() {
     const newName = document.getElementById('modal-company-name-input').value.trim();
     if (newName) {
         state.companyName = newName;
         saveData();
         document.getElementById('app-company-name').innerText = newName;
-        document.getElementById('display-company-title').innerText = newName;
         document.getElementById('receipt-company').innerText = newName.toUpperCase();
+        if (state.currentUserEmail) {
+            const existing = await fetchRegisteredUser(state.currentUserEmail);
+            if (existing) {
+                existing.companyName = newName;
+                await persistRegisteredUser(existing);
+            }
+        }
     }
     closeConfigModal();
 }
@@ -1953,9 +2128,10 @@ function switchModule(modName) {
 }
 
 // EXPORTAR FUNCIONES AL ÁMBITO GLOBAL
-window.checkPasswordStrength = checkPasswordStrength;
 window.switchAuthTab = switchAuthTab;
 window.handleAuthSubmit = handleAuthSubmit;
+window.handleRegisterRoleChange = handleRegisterRoleChange;
+window.checkPasswordStrength = checkPasswordStrength;
 window.switchModule = switchModule;
 window.toggleNewClientForm = toggleNewClientForm;
 window.saveClient = saveClient;
