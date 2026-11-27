@@ -823,32 +823,62 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Leche ($ Auto)</label>
-                                    <input type="number" id="yield-milk-cost" readonly class="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-sm font-bold text-slate-600 cursor-not-allowed">
+                                    <input type="number" step="any" id="yield-milk-cost" oninput="updateYieldLivePreview()" required class="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-sm font-bold text-slate-800">
                                 </div>
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Presentación</label>
-                                    <select id="yield-type" onchange="handleYieldTypeChange()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
+                                    <select id="yield-type" onchange="handleYieldTypeChange(true)" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-semibold">
                                         <option value="kilos">Kilogramos (kg)</option>
                                         <option value="libras">Libras (lb)</option>
+                                        <option value="unidades">Unidades (und)</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-emerald-900 uppercase mb-1" id="yield-target-label">Tu Meta / Promedio</label>
-                                    <input type="number" step="any" id="yield-custom-target" required value="8.25" class="w-full bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-sm font-bold text-emerald-950">
+                                    <input type="number" step="any" id="yield-custom-target" oninput="onYieldTargetInput()" required value="8.25" class="w-full bg-emerald-50 border border-emerald-300 rounded-xl p-2.5 text-sm font-bold text-emerald-950">
                                 </div>
                             </div>
 
                             <div>
                                 <label class="block text-xs font-bold text-slate-700 uppercase mb-1" id="yield-weight-label">Peso Total Obtenido (Kilos)</label>
-                                <input type="number" step="any" id="yield-weight-val" required placeholder="Ej: 85.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
+                                <input type="number" step="any" id="yield-weight-val" oninput="updateYieldLivePreview()" required placeholder="Ej: 85.5" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
                             </div>
 
                             <div>
                                 <label class="block text-xs font-bold text-amber-900 uppercase mb-1" id="yield-price-label">Precio de Venta por Kilo ($)</label>
-                                <input type="number" id="yield-sale-price" required placeholder="Ej: 18000" class="w-full bg-amber-50 border border-amber-300 rounded-xl p-2.5 text-sm font-bold text-amber-950">
+                                <input type="text" inputmode="numeric" id="yield-sale-price" oninput="updateYieldLivePreview()" required placeholder="Ej: 18000" class="w-full bg-amber-50 border border-amber-300 rounded-xl p-2.5 text-sm font-bold text-amber-950">
+                            </div>
+
+                            <div id="yield-live-preview" class="bg-slate-900 text-white rounded-xl p-3.5 text-xs space-y-2 border border-slate-800">
+                                <div class="flex items-center justify-between border-b border-slate-700 pb-1.5">
+                                    <span class="font-bold text-amber-300 uppercase tracking-wider text-[11px]">Cálculo en Vivo del Lote</span>
+                                    <span id="live-cantinas-badge" class="font-mono text-[11px] bg-slate-800 px-2 py-0.5 rounded text-slate-200">0.00 cantinas</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-300">Promedio Obtenido:</span>
+                                    <span id="live-promedio-val" class="font-mono font-black text-sm text-emerald-400">0.00 kg/cant</span>
+                                </div>
+                                <div class="flex items-center justify-between text-[11px]">
+                                    <span class="text-slate-400">Comparado con tu Meta:</span>
+                                    <span id="live-meta-status" class="font-bold text-slate-300">Ingresa litros y peso</span>
+                                </div>
+                                <div class="border-t border-slate-800 pt-1.5 space-y-1 font-mono text-[11px]">
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-400">Costo Unitario Leche:</span>
+                                        <span id="live-unit-cost" class="text-slate-200">$0</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-400">Total Venta del Lote:</span>
+                                        <span id="live-total-sale" class="text-sky-300 font-bold">$0</span>
+                                    </div>
+                                    <div class="flex justify-between text-xs pt-0.5">
+                                        <span class="font-sans font-bold text-slate-200">Ganancia Neta Lote:</span>
+                                        <span id="live-net-profit" class="font-black text-emerald-400">$0</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <button type="submit" id="yield-submit-btn" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-sm">
@@ -1025,7 +1055,7 @@
     </div>
 
     <!-- Script Principal -->
-    <script type="module" src="./app.js?v=4"></script>
+    <script type="module" src="./app.js?v=5"></script>
     <!-- Activación como App Instalable -->
     <script>
         if ('serviceWorker' in navigator) {

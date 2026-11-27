@@ -1170,27 +1170,93 @@ function resetQuincena() {
     }
 }
 
-function handleYieldTypeChange() {
-    const type = document.getElementById('yield-type').value;
+function parseNumericInput(rawVal) {
+    if (rawVal === null || rawVal === undefined) return 0;
+    if (typeof rawVal === 'number') return isNaN(rawVal) ? 0 : rawVal;
+    let str = String(rawVal).trim().replace(/\$/g, '').replace(/\s+/g, '');
+    if (!str) return 0;
+    // Si tiene punto de miles colombiano (ej: 18.000 o 1.250.000), quitar los puntos de miles
+    if (/^-?\d{1,3}(\.\d{3})+$/.test(str)) {
+        str = str.replace(/\./g, '');
+    } else if (str.includes(',') && !str.includes('.')) {
+        // Decimal con coma (ej: 8,25 -> 8.25)
+        str = str.replace(',', '.');
+    } else if (str.includes('.') && str.includes(',')) {
+        // Formato 18.000,50 -> 18000.50
+        str = str.replace(/\./g, '').replace(',', '.');
+    }
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+}
+
+function getYieldUnitSuffix(type) {
+    if (type === 'libras') return 'lb';
+    if (type === 'unidades') return 'und';
+    return 'kg';
+}
+
+function getEffectiveMilkPricePerLiter(milkLog) {
+    if (!milkLog) return 0;
+    if (milkLog.pricePerLiter && Number(milkLog.pricePerLiter) > 0) {
+        return Number(milkLog.pricePerLiter);
+    }
+    const prov = state.milkProviders.find(p => p.id === milkLog.providerId || p.name === milkLog.providerName);
+    return prov && prov.pricePerLiter ? Number(prov.pricePerLiter) : 0;
+}
+
+function getGlobalProvidersAvgPrice() {
+    const valid = state.milkProviders.filter(p => Number(p.pricePerLiter) > 0);
+    if (valid.length === 0) return 0;
+    const sum = valid.reduce((acc, p) => acc + Number(p.pricePerLiter), 0);
+    return sum / valid.length;
+}
+
+function handleYieldTypeChange(preserveCustomTarget = false) {
+    const typeEl = document.getElementById('yield-type');
+    const type = typeEl ? typeEl.value : 'kilos';
     const weightLabel = document.getElementById('yield-weight-label');
     const priceLabel = document.getElementById('yield-price-label');
     const targetLabel = document.getElementById('yield-target-label');
     const targetInput = document.getElementById('yield-custom-target');
     const weightInput = document.getElementById('yield-weight-val');
+    const priceInput = document.getElementById('yield-sale-price');
 
     if (type === 'kilos') {
         if (weightLabel) weightLabel.innerText = 'Peso Total Obtenido (Kilos)';
         if (priceLabel) priceLabel.innerText = 'Precio de Venta por Kilo ($)';
         if (targetLabel) targetLabel.innerText = 'Tu Meta / Promedio (kg/cant)';
-        if (targetInput) targetInput.value = '8.25';
+        if (targetInput && !preserveCustomTarget) targetInput.value = '8.25';
         if (weightInput) weightInput.placeholder = 'Ej: 85.5';
-    } else {
+        if (priceInput) priceInput.placeholder = 'Ej: 18000';
+    } else if (type === 'libras') {
         if (weightLabel) weightLabel.innerText = 'Peso Total Obtenido (Libras)';
         if (priceLabel) priceLabel.innerText = 'Precio de Venta por Libra ($)';
         if (targetLabel) targetLabel.innerText = 'Tu Meta / Promedio (lb/cant)';
-        if (targetInput) targetInput.value = '16.5';
+        if (targetInput && !preserveCustomTarget) targetInput.value = '16.5';
         if (weightInput) weightInput.placeholder = 'Ej: 170';
+        if (priceInput) priceInput.placeholder = 'Ej: 9500';
+    } else {
+        if (weightLabel) weightLabel.innerText = 'Cantidad Total Obtenida (Unidades)';
+        if (priceLabel) priceLabel.innerText = 'Precio de Venta por Unidad ($)';
+        if (targetLabel) targetLabel.innerText = 'Tu Meta / Promedio (und/cant)';
+        if (targetInput && !preserveCustomTarget) targetInput.value = '12';
+        if (weightInput) weightInput.placeholder = 'Ej: 48';
+        if (priceInput) priceInput.placeholder = 'Ej: 8000';
     }
+
+    if (preserveCustomTarget && targetInput) {
+        if (type === 'libras' && (!targetInput.value || Number(targetInput.value) === 8.25)) {
+            targetInput.value = '16.5';
+        } else if (type === 'kilos' && (!targetInput.value || Number(targetInput.value) === 16.5)) {
+            targetInput.value = '8.25';
+        } else if (type === 'unidades' && (!targetInput.value || Number(targetInput.value) === 8.25 || Number(targetInput.value) === 16.5)) {
+            targetInput.value = '12';
+        }
+    }
+
+    const nameInput = document.getElementById('yield-product-name');
+    updateYieldTopCardForSelectedProduct(nameInput ? nameInput.value : '');
+    updateYieldLivePreview();
 }
 
 function onYieldProductSelectChange() {
@@ -1205,61 +1271,176 @@ function onYieldProductSelectChange() {
     if (val === 'Personalizado') {
         nameInput.value = '';
         nameInput.focus();
-    } else {
-        nameInput.value = val;
-        if (val.toLowerCase().includes('libra')) {
-            typeSelect.value = 'libras';
-            targetInput.value = '16.5';
-        } else if (val.toLowerCase().includes('criollo')) {
-            typeSelect.value = 'kilos';
-            targetInput.value = '8.0';
-        } else if (val.toLowerCase().includes('pasteurizado')) {
-            typeSelect.value = 'kilos';
-            targetInput.value = '8.25';
-        } else if (val.toLowerCase().includes('cuajada')) {
-            typeSelect.value = 'kilos';
-            targetInput.value = '9.0';
-        } else {
-            typeSelect.value = 'kilos';
-            targetInput.value = '8.25';
-        }
-        handleYieldTypeChange();
+        updateYieldTopCardForSelectedProduct('');
+        updateYieldLivePreview();
+        return;
     }
+
+    nameInput.value = val;
+
+    // Buscar si ya existe historial de este producto para respetar la última meta y presentación usadas
+    const searchKey = val.toLowerCase().trim();
+    const lastLogForProduct = state.yieldLogs.find(l => (l.productName || '').toLowerCase().trim() === searchKey);
+
+    if (lastLogForProduct) {
+        if (typeSelect) typeSelect.value = lastLogForProduct.yieldType || 'kilos';
+        if (targetInput && lastLogForProduct.customTarget !== undefined) {
+            targetInput.value = lastLogForProduct.customTarget;
+        }
+        handleYieldTypeChange(true);
+    } else {
+        if (val.toLowerCase().includes('libra')) {
+            if (typeSelect) typeSelect.value = 'libras';
+            if (targetInput) targetInput.value = '16.5';
+        } else if (val.toLowerCase().includes('unidad')) {
+            if (typeSelect) typeSelect.value = 'unidades';
+            if (targetInput) targetInput.value = '12';
+        } else if (val.toLowerCase().includes('criollo')) {
+            if (typeSelect) typeSelect.value = 'kilos';
+            if (targetInput) targetInput.value = '8.0';
+        } else if (val.toLowerCase().includes('pasteurizado')) {
+            if (typeSelect) typeSelect.value = 'kilos';
+            if (targetInput) targetInput.value = '8.25';
+        } else if (val.toLowerCase().includes('cuajada')) {
+            if (typeSelect) typeSelect.value = 'kilos';
+            if (targetInput) targetInput.value = '9.0';
+        } else {
+            if (typeSelect) typeSelect.value = 'kilos';
+            if (targetInput) targetInput.value = '8.25';
+        }
+        handleYieldTypeChange(true);
+    }
+
     updateYieldTopCardForSelectedProduct(nameInput.value);
+    updateYieldLivePreview();
 }
 
 function onYieldProductNameInput() {
     const nameInput = document.getElementById('yield-product-name');
-    if (nameInput) {
-        updateYieldTopCardForSelectedProduct(nameInput.value);
-    }
+    updateYieldTopCardForSelectedProduct(nameInput ? nameInput.value : '');
+    updateYieldLivePreview();
+}
+
+function onYieldTargetInput() {
+    const nameInput = document.getElementById('yield-product-name');
+    updateYieldTopCardForSelectedProduct(nameInput ? nameInput.value : '');
+    updateYieldLivePreview();
 }
 
 function updateYieldTopCardForSelectedProduct(productName) {
     const statPromedioEl = document.getElementById('stat-yield-promedio');
     if (!statPromedioEl) return;
 
+    const currentTypeEl = document.getElementById('yield-type');
+    const currentType = currentTypeEl ? currentTypeEl.value : 'kilos';
+    const currentUnit = `${getYieldUnitSuffix(currentType)}/cant`;
+    const targetInput = document.getElementById('yield-custom-target');
+    const targetVal = targetInput ? parseNumericInput(targetInput.value) : 0;
+
     if (!productName || productName.trim() === '') {
-        statPromedioEl.innerText = `0 / cant`;
+        statPromedioEl.innerText = `${targetVal || 0} ${currentUnit} (Meta)`;
         return;
     }
 
     const searchKey = productName.toLowerCase().trim();
     const logsOfProduct = state.yieldLogs.filter(l => {
         const pName = (l.productName || '').toLowerCase().trim();
-        return pName.includes(searchKey) || searchKey.includes(pName);
+        const sameUnit = (l.yieldType || 'kilos') === currentType;
+        return sameUnit && (pName === searchKey || pName.includes(searchKey) || searchKey.includes(pName));
     });
 
     if (logsOfProduct.length === 0) {
-        const targetInput = document.getElementById('yield-custom-target');
-        const unit = document.getElementById('yield-type').value === 'libras' ? 'lb/cant' : 'kg/cant';
-        statPromedioEl.innerText = `${targetInput ? targetInput.value : '0'} ${unit} (Meta)`;
+        statPromedioEl.innerText = `${targetVal || 0} ${currentUnit} (Meta)`;
     } else {
-        let suma = 0;
-        logsOfProduct.forEach(l => suma += (l.promedioPorCantina || 0));
-        const promedioReal = (suma / logsOfProduct.length).toFixed(2);
-        const unit = logsOfProduct[0].yieldType === 'libras' ? 'lb/cant' : 'kg/cant';
-        statPromedioEl.innerText = `${promedioReal} ${unit}`;
+        // Promedio ponderado real: Peso Total Acumulado / Cantinas Totales Acumuladas
+        let totalWeightSum = 0;
+        let totalCantinasSum = 0;
+        logsOfProduct.forEach(l => {
+            const liters = Number(l.liters) || 0;
+            const cant = liters > 0 ? (liters / 40) : (Number(l.cantinasExactas) || 0);
+            totalWeightSum += (Number(l.totalWeight) || 0);
+            totalCantinasSum += cant;
+        });
+        const promedioReal = totalCantinasSum > 0 ? (totalWeightSum / totalCantinasSum).toFixed(2) : '0.00';
+        statPromedioEl.innerText = `${promedioReal} ${currentUnit} (Meta: ${targetVal || 0})`;
+    }
+}
+
+function updateYieldLivePreview() {
+    const liters = parseNumericInput(document.getElementById('yield-liters')?.value);
+    const milkCost = parseNumericInput(document.getElementById('yield-milk-cost')?.value);
+    const yieldType = document.getElementById('yield-type')?.value || 'kilos';
+    const customTarget = parseNumericInput(document.getElementById('yield-custom-target')?.value);
+    const totalWeight = parseNumericInput(document.getElementById('yield-weight-val')?.value);
+    const salePricePerUnit = parseNumericInput(document.getElementById('yield-sale-price')?.value);
+
+    const unitSuffix = getYieldUnitSuffix(yieldType);
+    const exactCantinas = liters > 0 ? (liters / 40) : 0;
+    const promedioActual = exactCantinas > 0 && totalWeight > 0 ? (totalWeight / exactCantinas) : 0;
+    const costoPorUnidad = totalWeight > 0 && milkCost > 0 ? (milkCost / totalWeight) : 0;
+    const totalVentaLote = totalWeight * salePricePerUnit;
+    const gananciaNetaLote = totalVentaLote - milkCost;
+
+    const cantinasBadge = document.getElementById('live-cantinas-badge');
+    const promedioEl = document.getElementById('live-promedio-val');
+    const metaStatusEl = document.getElementById('live-meta-status');
+    const unitCostEl = document.getElementById('live-unit-cost');
+    const totalSaleEl = document.getElementById('live-total-sale');
+    const netProfitEl = document.getElementById('live-net-profit');
+
+    if (cantinasBadge) {
+        cantinasBadge.innerText = `${exactCantinas.toFixed(2)} cantinas (${liters} L)`;
+    }
+
+    if (promedioEl) {
+        promedioEl.innerText = `${promedioActual.toFixed(2)} ${unitSuffix}/cant`;
+        if (totalWeight <= 0 || liters <= 0) {
+            promedioEl.className = 'font-mono font-black text-sm text-slate-300';
+        } else if (customTarget > 0 && promedioActual >= customTarget) {
+            promedioEl.className = 'font-mono font-black text-sm text-emerald-400';
+        } else {
+            promedioEl.className = 'font-mono font-black text-sm text-red-400';
+        }
+    }
+
+    if (metaStatusEl) {
+        if (liters <= 0 || totalWeight <= 0) {
+            metaStatusEl.innerText = `Meta: ${customTarget} ${unitSuffix}/cant`;
+            metaStatusEl.className = 'font-bold text-slate-300';
+        } else if (customTarget > 0) {
+            const diff = promedioActual - customTarget;
+            if (diff >= 0) {
+                metaStatusEl.innerText = `✅ Cumple (+${diff.toFixed(2)} ${unitSuffix}/cant sobre meta ${customTarget})`;
+                metaStatusEl.className = 'font-bold text-emerald-400';
+            } else {
+                metaStatusEl.innerText = `⚠️ Bajo meta (${diff.toFixed(2)} ${unitSuffix}/cant vs meta ${customTarget})`;
+                metaStatusEl.className = 'font-bold text-amber-400';
+            }
+        } else {
+            metaStatusEl.innerText = 'Sin meta definida';
+            metaStatusEl.className = 'font-bold text-slate-400';
+        }
+    }
+
+    if (unitCostEl) {
+        unitCostEl.innerText = `$${Math.round(costoPorUnidad).toLocaleString('es-CO')} / ${unitSuffix}`;
+    }
+
+    if (totalSaleEl) {
+        totalSaleEl.innerText = `$${Math.round(totalVentaLote).toLocaleString('es-CO')}`;
+    }
+
+    if (netProfitEl) {
+        const roundedProfit = Math.round(gananciaNetaLote);
+        const sign = roundedProfit > 0 ? '+' : '';
+        netProfitEl.innerText = `${sign}$${roundedProfit.toLocaleString('es-CO')}`;
+        if (totalWeight <= 0 || salePricePerUnit <= 0) {
+            netProfitEl.className = 'font-black text-slate-300';
+        } else if (roundedProfit >= 0) {
+            netProfitEl.className = 'font-black text-emerald-400';
+        } else {
+            netProfitEl.className = 'font-black text-red-400';
+        }
     }
 }
 
@@ -1274,55 +1455,75 @@ function onYieldDateChange() {
         litersInput.value = '';
         costInput.value = '';
         detailsEl.innerText = 'Selecciona una fecha de producción...';
-        currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
+        currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0, hasDayLogs: false };
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md";
         }
+        updateYieldLivePreview();
         return;
     }
 
     const logsForDate = state.dailyMilkLogs.filter(l => l.date === dateVal);
 
     if (logsForDate.length === 0) {
-        litersInput.value = 0;
-        costInput.value = 0;
-        currentDayMilkData = { totalLiters: 0, totalCost: 0, avgCostPerLiter: 0, remainingLiters: 0 };
-        detailsEl.innerHTML = `<span class="text-red-600 font-bold">⚠️ No hay leche registrada en el Módulo 4 (Acopio) para el ${dateVal}.</span>`;
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.className = "w-full bg-slate-300 text-slate-500 font-bold py-3 rounded-xl text-sm cursor-not-allowed";
+        const fallbackAvgPrice = getGlobalProvidersAvgPrice();
+        currentDayMilkData = {
+            totalLiters: 0,
+            totalCost: 0,
+            avgCostPerLiter: fallbackAvgPrice,
+            remainingLiters: Infinity,
+            hasDayLogs: false
+        };
+        if (fallbackAvgPrice > 0) {
+            detailsEl.innerHTML = `<span class="text-amber-800 font-bold">ℹ️ Sin acopio cargado en Módulo 4 el ${dateVal}. Usando tarifa promedio de proveedores ($${Math.round(fallbackAvgPrice).toLocaleString('es-CO')}/L).</span>`;
+        } else {
+            detailsEl.innerHTML = `<span class="text-amber-800 font-bold">ℹ️ Sin acopio en Módulo 4 el ${dateVal}. Puedes ingresar litros y costo de leche manualmente.</span>`;
         }
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-sm transition-all shadow-md";
+        }
+        onYieldLitersInput();
         return;
     }
 
     let totalLitersDay = 0;
     let totalCostDay = 0;
     logsForDate.forEach(l => {
-        totalLitersDay += l.liters;
-        totalCostDay += (l.liters * l.pricePerLiter);
+        const liters = Number(l.liters) || 0;
+        const unitPrice = getEffectiveMilkPricePerLiter(l);
+        totalLitersDay += liters;
+        totalCostDay += (liters * unitPrice);
     });
 
-    const avgCostPerLiter = totalLitersDay > 0 ? totalCostDay / totalLitersDay : 0;
+    const avgCostPerLiter = totalLitersDay > 0 ? totalCostDay / totalLitersDay : getGlobalProvidersAvgPrice();
 
     let usedLitersDay = 0;
     state.yieldLogs.forEach(y => {
         if (y.date === dateVal) {
-            usedLitersDay += (y.liters || 0);
+            usedLitersDay += (Number(y.liters) || 0);
         }
     });
 
     const remainingLiters = Math.max(0, totalLitersDay - usedLitersDay);
-    currentDayMilkData = { totalLiters: totalLitersDay, totalCost: totalCostDay, avgCostPerLiter, remainingLiters };
+    currentDayMilkData = {
+        totalLiters: totalLitersDay,
+        totalCost: totalCostDay,
+        avgCostPerLiter,
+        remainingLiters,
+        hasDayLogs: true
+    };
 
     if (remainingLiters <= 0) {
         litersInput.value = 0;
         costInput.value = 0;
-        detailsEl.innerHTML = `<span class="text-red-600 font-bold">🔒 La leche del ${dateVal} ya fue utilizada al 100%.</span>`;
+        detailsEl.innerHTML = `<span class="text-red-600 font-bold">🔒 La leche del ${dateVal} ya fue utilizada al 100% (${totalLitersDay} L).</span>`;
         if (submitBtn) {
             submitBtn.disabled = true;
             submitBtn.className = "w-full bg-slate-300 text-slate-500 font-bold py-3 rounded-xl text-sm cursor-not-allowed";
         }
+        updateYieldLivePreview();
         return;
     } else {
         if (submitBtn) {
@@ -1339,51 +1540,82 @@ function onYieldDateChange() {
 
     detailsEl.innerHTML = `
         <p class="font-bold text-emerald-950">🥛 Día ${dateVal} — Total: <b>${totalLitersDay} L</b> (${cantinasTotal} cant) | Usado: <b>${usedLitersDay} L</b></p>
-        <p class="font-bold text-amber-800 mt-0.5">✨ Disponible: <b>${remainingLiters} L</b> (~${cantinasRem} cantinas)</p>
+        <p class="font-bold text-amber-800 mt-0.5">✨ Disponible: <b>${remainingLiters} L</b> (~${cantinasRem} cantinas) @ $${Math.round(avgCostPerLiter).toLocaleString('es-CO')}/L</p>
     `;
 }
 
 function onYieldLitersInput() {
-    const allocatedLiters = parseFloat(document.getElementById('yield-liters').value) || 0;
+    const allocatedLiters = parseNumericInput(document.getElementById('yield-liters')?.value);
     const costInput = document.getElementById('yield-milk-cost');
 
-    if (currentDayMilkData.avgCostPerLiter > 0) {
+    if (costInput && currentDayMilkData.avgCostPerLiter > 0) {
         const proportionalCost = Math.round(allocatedLiters * currentDayMilkData.avgCostPerLiter);
         costInput.value = proportionalCost;
+    } else if (costInput && allocatedLiters <= 0) {
+        costInput.value = 0;
     }
+
+    updateYieldLivePreview();
 }
 
 function addYieldLog(e) {
     e.preventDefault();
     const date = document.getElementById('yield-date').value;
+    const productSelect = document.getElementById('yield-product-select');
+    const selectedOption = productSelect ? productSelect.value : 'Bloque Pasteurizado';
     const productNameInput = document.getElementById('yield-product-name');
     const productName = productNameInput ? productNameInput.value.trim() : 'Queso';
-    const liters = parseFloat(document.getElementById('yield-liters').value) || 0;
-    const milkCost = parseFloat(document.getElementById('yield-milk-cost').value) || 0;
+    const liters = parseNumericInput(document.getElementById('yield-liters').value);
+    const milkCost = parseNumericInput(document.getElementById('yield-milk-cost').value);
     const yieldType = document.getElementById('yield-type').value;
-    const customTarget = parseFloat(document.getElementById('yield-custom-target').value) || (yieldType === 'libras' ? 16.5 : 8.25);
-    const totalWeight = parseFloat(document.getElementById('yield-weight-val').value) || 0;
-    const salePricePerUnit = parseFloat(document.getElementById('yield-sale-price').value) || 0;
+    const defaultTarget = yieldType === 'libras' ? 16.5 : (yieldType === 'unidades' ? 12 : 8.25);
+    const customTarget = parseNumericInput(document.getElementById('yield-custom-target').value) || defaultTarget;
+    const totalWeight = parseNumericInput(document.getElementById('yield-weight-val').value);
+    const salePricePerUnit = parseNumericInput(document.getElementById('yield-sale-price').value);
 
-    if (!date || !productName || liters <= 0 || milkCost <= 0 || totalWeight <= 0 || salePricePerUnit <= 0) {
+    if (!date || !productName) {
+        alert("⚠️ Selecciona la fecha y escribe el nombre del producto.");
+        return;
+    }
+    if (liters <= 0) {
+        alert("⚠️ Ingresa una cantidad válida de litros utilizados.");
+        return;
+    }
+    if (milkCost <= 0) {
+        alert("⚠️ El costo de la leche debe ser mayor a $0.");
+        return;
+    }
+    if (totalWeight <= 0) {
+        alert("⚠️ Ingresa el peso o cantidad total obtenida del lote.");
+        return;
+    }
+    if (salePricePerUnit <= 0) {
+        alert("⚠️ Ingresa el precio de venta por unidad/kilo/libra.");
         return;
     }
 
-    let totalLitersDay = 0;
-    state.dailyMilkLogs.forEach(l => { if (l.date === date) totalLitersDay += l.liters; });
-    let usedLitersDay = 0;
-    state.yieldLogs.forEach(y => { if (y.date === date) usedLitersDay += (y.liters || 0); });
-    const remainingLiters = totalLitersDay - usedLitersDay;
+    if (currentDayMilkData.hasDayLogs) {
+        let totalLitersDay = 0;
+        state.dailyMilkLogs.forEach(l => { if (l.date === date) totalLitersDay += (Number(l.liters) || 0); });
+        let usedLitersDay = 0;
+        state.yieldLogs.forEach(y => { if (y.date === date) usedLitersDay += (Number(y.liters) || 0); });
+        const remainingLiters = totalLitersDay - usedLitersDay;
 
-    if (liters > remainingLiters + 0.001) return;
+        if (liters > remainingLiters + 0.001) {
+            alert(`⚠️ Solo quedan ${remainingLiters} litros disponibles para el día ${date}.`);
+            return;
+        }
+    }
 
-    const cantinasExactas = parseFloat((liters / 40).toFixed(2));
+    // Cálculo exacto sobre cantinas de 40 L (sin redondear prematuramente antes de dividir)
+    const exactCantinas = liters / 40;
+    const cantinasExactas = parseFloat(exactCantinas.toFixed(2));
     const cantinasEnteras = Math.floor(liters / 40);
-    const litrosSobrantes = liters % 40;
-    const promedioPorCantina = cantinasExactas > 0 ? parseFloat((totalWeight / cantinasExactas).toFixed(2)) : 0;
-    const costoPorUnidad = totalWeight > 0 ? parseFloat((milkCost / totalWeight).toFixed(2)) : 0;
-    const totalVentaLote = totalWeight * salePricePerUnit;
-    const gananciaNetaLote = totalVentaLote - milkCost;
+    const litrosSobrantes = parseFloat((liters % 40).toFixed(2));
+    const promedioPorCantina = exactCantinas > 0 ? parseFloat((totalWeight / exactCantinas).toFixed(2)) : 0;
+    const costoPorUnidad = totalWeight > 0 ? Math.round(milkCost / totalWeight) : 0;
+    const totalVentaLote = Math.round(totalWeight * salePricePerUnit);
+    const gananciaNetaLote = Math.round(totalVentaLote - milkCost);
 
     state.yieldLogs.unshift({
         id: Date.now(),
@@ -1392,7 +1624,7 @@ function addYieldLog(e) {
         liters,
         cantinasText: `${cantinasEnteras} cant${litrosSobrantes > 0 ? ' + ' + litrosSobrantes + 'L' : ''} (${cantinasExactas} cant)`,
         cantinasExactas,
-        milkCost,
+        milkCost: Math.round(milkCost),
         yieldType,
         customTarget,
         totalWeight,
@@ -1404,12 +1636,18 @@ function addYieldLog(e) {
     });
 
     saveData();
-    document.getElementById('yield-form').reset();
-    document.getElementById('yield-date').valueAsDate = new Date();
-    document.getElementById('yield-type').value = 'kilos';
-    handleYieldTypeChange();
+
+    // Limpiar solo peso y precio de venta, manteniendo la fecha, el producto y tu meta configurada
+    const weightInput = document.getElementById('yield-weight-val');
+    const priceInput = document.getElementById('yield-sale-price');
+    if (weightInput) weightInput.value = '';
+    if (priceInput) priceInput.value = '';
+    if (productSelect) productSelect.value = selectedOption;
+    if (productNameInput) productNameInput.value = productName;
+
     onYieldDateChange();
-    onYieldProductSelectChange();
+    updateYieldTopCardForSelectedProduct(productName);
+    updateYieldLivePreview();
     renderYieldTable();
 }
 
@@ -1426,31 +1664,40 @@ function renderYieldTable() {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-slate-400 font-medium">No hay registros de rendimiento.</td></tr>';
         document.getElementById('stat-yield-cantinas').innerText = '0 Cantinas';
         document.getElementById('stat-yield-profit').innerText = '$0';
+        const productNameInput = document.getElementById('yield-product-name');
+        updateYieldTopCardForSelectedProduct(productNameInput ? productNameInput.value : '');
         return;
     }
 
     state.yieldLogs.forEach(log => {
-        const cantinasExactas = log.cantinasExactas || (log.liters ? log.liters / 40 : 0);
-        const cantinasText = log.cantinasText || `${cantinasExactas.toFixed(1)} cant`;
+        const liters = Number(log.liters) || 0;
+        const exactCantinas = liters > 0 ? (liters / 40) : (Number(log.cantinasExactas) || 0);
+        const cantinasExactas = parseFloat(exactCantinas.toFixed(2));
+        const cantinasText = log.cantinasText || `${cantinasExactas.toFixed(2)} cant`;
         const productName = log.productName || 'Queso / Lote';
         const yieldType = log.yieldType || 'kilos';
-        const totalWeight = log.totalWeight !== undefined ? log.totalWeight : 0;
-        const customTarget = log.customTarget !== undefined ? log.customTarget : (yieldType === 'libras' ? 16.5 : 8.25);
-        const promedioPorCantina = log.promedioPorCantina || (cantinasExactas > 0 ? parseFloat((totalWeight / cantinasExactas).toFixed(2)) : 0);
-        const milkCost = log.milkCost || 0;
-        const costoPorUnidad = log.costoPorUnidad || (totalWeight > 0 ? parseFloat((milkCost / totalWeight).toFixed(2)) : 0);
-        const salePricePerUnit = log.salePricePerUnit || 0;
-        const totalVentaLote = log.totalVentaLote || (totalWeight * salePricePerUnit);
-        const gananciaNetaLote = log.gananciaNetaLote !== undefined ? log.gananciaNetaLote : (totalVentaLote - milkCost);
-        const gananciaUnitaria = salePricePerUnit - costoPorUnidad;
+        const totalWeight = Number(log.totalWeight) || 0;
+        const defaultTarget = yieldType === 'libras' ? 16.5 : (yieldType === 'unidades' ? 12 : 8.25);
+        const customTarget = log.customTarget !== undefined ? Number(log.customTarget) : defaultTarget;
+        const promedioPorCantina = exactCantinas > 0
+            ? parseFloat((totalWeight / exactCantinas).toFixed(2))
+            : (Number(log.promedioPorCantina) || 0);
+        const milkCost = Number(log.milkCost) || 0;
+        const costoPorUnidad = totalWeight > 0 ? Math.round(milkCost / totalWeight) : (Number(log.costoPorUnidad) || 0);
+        const salePricePerUnit = Number(log.salePricePerUnit) || 0;
+        const totalVentaLote = log.totalVentaLote !== undefined ? Number(log.totalVentaLote) : Math.round(totalWeight * salePricePerUnit);
+        const gananciaNetaLote = log.gananciaNetaLote !== undefined ? Number(log.gananciaNetaLote) : Math.round(totalVentaLote - milkCost);
+        const gananciaUnitaria = Math.round(salePricePerUnit - costoPorUnidad);
 
-        totalCantinasGeneral += cantinasExactas;
+        totalCantinasGeneral += exactCantinas;
         sumaGanancias += gananciaNetaLote;
 
         const isGood = promedioPorCantina >= customTarget;
         const badgeColor = isGood ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700';
         const profitColor = gananciaNetaLote >= 0 ? 'text-emerald-700 font-black' : 'text-red-600 font-black';
-        const unitLabel = yieldType === 'libras' ? 'lb' : 'kg';
+        const unitGainColor = gananciaUnitaria >= 0 ? 'text-sky-700 font-extrabold' : 'text-red-600 font-extrabold';
+        const unitGainSign = gananciaUnitaria > 0 ? '+' : '';
+        const unitLabel = getYieldUnitSuffix(yieldType);
 
         tbody.innerHTML += `
             <tr class="border-b border-amber-50 hover:bg-amber-50/30">
@@ -1458,7 +1705,7 @@ function renderYieldTable() {
                     <span class="font-bold text-slate-900">${productName}</span><br>
                     <span class="font-mono text-[11px] text-slate-500">${log.date}</span>
                 </td>
-                <td class="py-3 px-4 font-bold text-slate-800">${cantinasText} <span class="text-[11px] text-slate-400">(${log.liters || 0} L)</span></td>
+                <td class="py-3 px-4 font-bold text-slate-800">${cantinasText} <span class="text-[11px] text-slate-400">(${liters} L)</span></td>
                 <td class="py-3 px-4 font-mono font-bold text-slate-700">${totalWeight} ${unitLabel}</td>
                 <td class="py-3 px-4">
                     <span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeColor}">${promedioPorCantina} ${unitLabel}/cant</span><br>
@@ -1467,15 +1714,18 @@ function renderYieldTable() {
                 <td class="py-3 px-4 text-right font-mono text-xs">
                     <span class="text-slate-500">Costo Unit: $${costoPorUnidad.toLocaleString('es-CO')}</span><br>
                     <span class="text-emerald-800 font-bold">Venta Unit: $${salePricePerUnit.toLocaleString('es-CO')}</span><br>
-                    <span class="text-sky-700 font-extrabold">Ganancia Unit: +$${gananciaUnitaria.toLocaleString('es-CO')} / ${unitLabel}</span>
+                    <span class="${unitGainColor}">Ganancia Unit: ${unitGainSign}$${gananciaUnitaria.toLocaleString('es-CO')} / ${unitLabel}</span>
                 </td>
-                <td class="py-3 px-4 text-right font-mono ${profitColor}">$${gananciaNetaLote.toLocaleString('es-CO')}</td>
+                <td class="py-3 px-4 text-right font-mono ${profitColor}">
+                    $${gananciaNetaLote.toLocaleString('es-CO')}<br>
+                    <span class="text-[10px] font-normal text-slate-500">Venta: $${totalVentaLote.toLocaleString('es-CO')}</span>
+                </td>
                 <td class="py-3 px-4 text-right"><button onclick="deleteYieldLog(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
             </tr>`;
     });
 
     const promedioGanancia = Math.round(sumaGanancias / count);
-    document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(1)} Cantinas`;
+    document.getElementById('stat-yield-cantinas').innerText = `${totalCantinasGeneral.toFixed(2)} Cantinas`;
     document.getElementById('stat-yield-profit').innerText = `$${promedioGanancia.toLocaleString('es-CO')}`;
 
     const productNameInput = document.getElementById('yield-product-name');
@@ -1490,7 +1740,7 @@ function deleteYieldLog(id) {
         saveData();
         renderYieldTable();
         onYieldDateChange();
-        onYieldProductSelectChange();
+        updateYieldLivePreview();
     }
 }
 
@@ -2131,7 +2381,7 @@ function switchModule(modName) {
 
     if (modName === 'leche') {
         const dateInput = document.getElementById('daily-milk-date');
-        if (dateInput && !dateInput.value) dateInput.valueAsDate = new Date();
+        if (dateInput && !dateInput.value) dateInput.value = getLocalDateString();
         renderMilkProvidersSelect();
         renderProvidersTable();
         renderMilkPaymentsTable();
@@ -2151,10 +2401,11 @@ function switchModule(modName) {
 
     if (modName === 'vehiculos') {
         const yieldDateInput = document.getElementById('yield-date');
-        if (yieldDateInput && !yieldDateInput.value) yieldDateInput.valueAsDate = new Date();
+        if (yieldDateInput && !yieldDateInput.value) yieldDateInput.value = getLocalDateString();
         onYieldDateChange();
         onYieldProductSelectChange();
         renderYieldTable();
+        updateYieldLivePreview();
     }
 
     if (modName === 'contabilidad') {
@@ -2201,8 +2452,10 @@ window.logout = logout;
 window.onYieldDateChange = onYieldDateChange;
 window.onYieldProductSelectChange = onYieldProductSelectChange;
 window.onYieldProductNameInput = onYieldProductNameInput;
+window.onYieldTargetInput = onYieldTargetInput;
 window.onYieldLitersInput = onYieldLitersInput;
 window.handleYieldTypeChange = handleYieldTypeChange;
+window.updateYieldLivePreview = updateYieldLivePreview;
 window.addYieldLog = addYieldLog;
 window.deleteYieldLog = deleteYieldLog;
 window.promptPaySpecificDebt = promptPaySpecificDebt;
