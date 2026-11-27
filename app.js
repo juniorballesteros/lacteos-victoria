@@ -21,7 +21,7 @@ const db = getDatabase(app);
 // Claves de almacenamiento en Firebase
 const DEFAULT_STORAGE_KEY = 'lacteos_app_master_db';
 const USERS_REGISTRY_KEY = 'lacteos_users_registry';
-const LOCAL_USERS_CACHE_KEY = 'lacteos_local_users_cache_v3';
+const LOCAL_USERS_CACHE_KEY = 'lacteos_local_users_cache_v4';
 const PRIMARY_OWNER_EMAIL = 'ballesterosjunior3@gmail.com';
 
 let currentWorkspaceKey = null;
@@ -66,36 +66,29 @@ function emailToFirebaseKey(email) {
     return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
 }
 
-function normalizeCompanySlug(name) {
-    return (name || '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '');
+function getOwnerWorkspaceKey(ownerEmail) {
+    const cleanEmail = (ownerEmail || '').trim().toLowerCase();
+    if (cleanEmail === PRIMARY_OWNER_EMAIL) {
+        return DEFAULT_STORAGE_KEY;
+    }
+    return `lacteos_owner_${emailToFirebaseKey(cleanEmail)}`;
 }
 
-function resolveWorkspaceForAccount(email, role, companyName) {
+function resolveWorkspaceForOwner(email, companyName) {
     const cleanEmail = (email || '').trim().toLowerCase();
     const cleanCompany = (companyName || '').trim();
-    const slug = normalizeCompanySlug(cleanCompany);
 
-    // La cuenta principal o la empresa Lácteos Victoria usan la base maestra original
-    if (
-        cleanEmail === PRIMARY_OWNER_EMAIL ||
-        slug === 'lacteos_victoria' ||
-        (role === 'conductor' && !slug)
-    ) {
+    if (cleanEmail === PRIMARY_OWNER_EMAIL) {
         return {
             workspaceKey: DEFAULT_STORAGE_KEY,
-            resolvedCompanyName: 'Lácteos Victoria'
+            resolvedCompanyName: cleanCompany || 'Lácteos Victoria'
         };
     }
 
-    const safeSlug = slug || ('empresa_' + emailToFirebaseKey(cleanEmail));
+    // Cada correo de dueño distinto obtiene su propia base de datos única e independiente,
+    // sin importar si dos dueños escriben el mismo nombre de empresa.
     return {
-        workspaceKey: `lacteos_ws_${safeSlug}`,
+        workspaceKey: getOwnerWorkspaceKey(cleanEmail),
         resolvedCompanyName: cleanCompany || 'Mi Empresa Láctea'
     };
 }
@@ -257,13 +250,21 @@ function handleRegisterRoleChange() {
     if (!roleSelect) return;
 
     if (roleSelect.value === 'conductor') {
-        if (companyLabel) companyLabel.innerText = 'Empresa / Quesera donde trabajas';
-        if (companyInput) companyInput.placeholder = 'Ej: Lácteos Victoria';
-        if (companyHint) companyHint.innerText = 'Te conectará directamente al módulo de Acopio de Leche de esa empresa.';
+        if (companyLabel) companyLabel.innerText = 'Correo del Dueño de la Empresa';
+        if (companyInput) {
+            companyInput.type = 'email';
+            companyInput.value = '';
+            companyInput.placeholder = 'Ej: dueno@correo.com';
+        }
+        if (companyHint) companyHint.innerText = 'Escribe el correo con el que está registrado el dueño para conectarte solo a su módulo de Acopio de Leche.';
     } else {
         if (companyLabel) companyLabel.innerText = 'Nombre de tu Empresa / Quesera';
-        if (companyInput) companyInput.placeholder = 'Ej: Lácteos Victoria';
-        if (companyHint) companyHint.innerText = 'Cada empresa nueva crea su propia base de datos independiente.';
+        if (companyInput) {
+            companyInput.type = 'text';
+            companyInput.value = '';
+            companyInput.placeholder = 'Ej: Quesera El Prado';
+        }
+        if (companyHint) companyHint.innerText = 'Cada correo de dueño crea una empresa 100% independiente, sin importar el nombre que elijas.';
     }
 }
 
@@ -387,14 +388,43 @@ async function handleAuthSubmit(e) {
             const roleSelect = document.getElementById('user-role-input');
             const companyNameInput = document.getElementById('company-name-input');
             const role = roleSelect ? roleSelect.value : 'admin';
-            const rawCompanyName = companyNameInput ? companyNameInput.value.trim() : '';
+            const rawInput = companyNameInput ? companyNameInput.value.trim() : '';
 
-            if (role === 'admin' && !rawCompanyName && email !== PRIMARY_OWNER_EMAIL) {
-                alert("⚠️ Escribe el nombre de tu Empresa o Quesera para crear tu cuenta independiente.");
-                return;
+            let workspaceKey = '';
+            let resolvedCompanyName = '';
+            let linkedOwnerEmail = null;
+
+            if (role === 'conductor') {
+                const ownerEmail = rawInput.toLowerCase();
+                if (!ownerEmail) {
+                    alert("⚠️ Escribe el correo del Dueño de la empresa donde trabajas.");
+                    return;
+                }
+
+                if (ownerEmail === PRIMARY_OWNER_EMAIL) {
+                    workspaceKey = DEFAULT_STORAGE_KEY;
+                    resolvedCompanyName = 'Lácteos Victoria';
+                    linkedOwnerEmail = PRIMARY_OWNER_EMAIL;
+                } else {
+                    const ownerUser = await fetchRegisteredUser(ownerEmail);
+                    if (!ownerUser || ownerUser.role !== 'admin') {
+                        alert("⚠️ No existe ningún Dueño registrado con ese correo. Verifica el correo del dueño e intenta de nuevo.");
+                        return;
+                    }
+                    workspaceKey = getOwnerWorkspaceKey(ownerEmail);
+                    resolvedCompanyName = ownerUser.companyName || 'Mi Empresa Láctea';
+                    linkedOwnerEmail = ownerEmail;
+                }
+            } else {
+                if (!rawInput && email !== PRIMARY_OWNER_EMAIL) {
+                    alert("⚠️ Escribe el nombre de tu Empresa o Quesera para crear tu cuenta independiente.");
+                    return;
+                }
+                const resolved = resolveWorkspaceForOwner(email, rawInput);
+                workspaceKey = resolved.workspaceKey;
+                resolvedCompanyName = resolved.resolvedCompanyName;
+                linkedOwnerEmail = email;
             }
-
-            const { workspaceKey, resolvedCompanyName } = resolveWorkspaceForAccount(email, role, rawCompanyName);
 
             const newAccount = {
                 email,
@@ -402,6 +432,7 @@ async function handleAuthSubmit(e) {
                 role,
                 companyName: resolvedCompanyName,
                 workspaceKey,
+                ownerEmail: linkedOwnerEmail,
                 createdAt: new Date().toISOString()
             };
 
@@ -413,12 +444,16 @@ async function handleAuthSubmit(e) {
                     alert("❌ Contraseña incorrecta para este correo. Verifica e intenta nuevamente.");
                     return;
                 }
-                // Asegurar que la cuenta principal siempre apunte a la base maestra de Lácteos Victoria
-                if (email === PRIMARY_OWNER_EMAIL && existingUser.workspaceKey !== DEFAULT_STORAGE_KEY) {
-                    existingUser.workspaceKey = DEFAULT_STORAGE_KEY;
-                    existingUser.companyName = 'Lácteos Victoria';
-                    existingUser.role = 'admin';
-                    await persistRegisteredUser(existingUser);
+                // Garantizar que cada dueño entre siempre a su propia base de datos aislada por correo
+                if (existingUser.role === 'admin') {
+                    const expectedKey = getOwnerWorkspaceKey(email);
+                    if (existingUser.workspaceKey !== expectedKey) {
+                        existingUser.workspaceKey = expectedKey;
+                        if (email === PRIMARY_OWNER_EMAIL && !existingUser.companyName) {
+                            existingUser.companyName = 'Lácteos Victoria';
+                        }
+                        await persistRegisteredUser(existingUser);
+                    }
                 }
                 enterAuthenticatedSession(existingUser);
                 return;
