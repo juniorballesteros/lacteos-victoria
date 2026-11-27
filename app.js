@@ -1,6 +1,6 @@
 // Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
 
 // Credenciales oficiales de tu proyecto en Firebase
 const firebaseConfig = {
@@ -24,6 +24,7 @@ let state = {
     companyName: 'Lácteos Victoria',
     currentUserRole: 'admin',
     currentUserEmail: null,
+    registeredUsers: {},
     clients: [],
     products: [],
     productionLogs: [],
@@ -50,12 +51,17 @@ function getLocalDateString() {
     return `${year}-${month}-${day}`;
 }
 
+function normalizeUserKey(email = '') {
+    return email.trim().toLowerCase().replace(/[.#$[\]]/g, '_');
+}
+
 function loadSavedDataFromCloud() {
     const dbRef = ref(db, STORAGE_KEY);
     onValue(dbRef, (snapshot) => {
         const parsed = snapshot.val();
         if (parsed) {
             state.companyName = parsed.companyName || state.companyName;
+            state.registeredUsers = parsed.registeredUsers || {};
             state.clients = parsed.clients || [];
             state.products = parsed.products || [];
             state.productionLogs = parsed.productionLogs || [];
@@ -69,8 +75,10 @@ function loadSavedDataFromCloud() {
 
             const appNameEl = document.getElementById('app-company-name');
             const receiptCompanyEl = document.getElementById('receipt-company');
+            const titleEl = document.getElementById('display-company-title');
             if (appNameEl) appNameEl.innerText = state.companyName;
             if (receiptCompanyEl) receiptCompanyEl.innerText = state.companyName.toUpperCase();
+            if (titleEl) titleEl.innerText = state.companyName;
 
             if (document.getElementById('main-app') && !document.getElementById('main-app').classList.contains('hidden')) {
                 renderClientSelect();
@@ -97,6 +105,7 @@ function loadSavedDataFromCloud() {
 function saveData() {
     const dataToSave = {
         companyName: state.companyName,
+        registeredUsers: state.registeredUsers || {},
         clients: state.clients,
         products: state.products,
         productionLogs: state.productionLogs,
@@ -137,54 +146,154 @@ function updateDateDisplay() {
     if (dateEl) dateEl.innerText = now.toLocaleDateString('es-CO');
 }
 
+function checkPasswordStrength(password = '') {
+    const container = document.getElementById('password-strength-container');
+    const label = document.getElementById('strength-label');
+    const bar = document.getElementById('strength-bar');
+
+    if (!container || !label || !bar) return;
+
+    if (!isRegisterMode || !password) {
+        container.classList.add('hidden');
+        bar.style.width = '0%';
+        label.textContent = '';
+        return;
+    }
+
+    container.classList.remove('hidden');
+
+    let score = 0;
+    if (password.length >= 6) score++;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password) || /[^A-Za-z0-9]/.test(password)) score++;
+
+    const levels = [
+        { width: '33%', text: 'Débil', color: '#ef4444' },
+        { width: '50%', text: 'Regular', color: '#d97706' },
+        { width: '75%', text: 'Buena', color: '#059669' },
+        { width: '100%', text: 'Fuerte', color: '#065f46' }
+    ];
+
+    const current = levels[Math.max(0, Math.min(levels.length - 1, score - 1))];
+    bar.style.width = current.width;
+    bar.style.backgroundColor = current.color;
+    label.style.color = current.color;
+    label.textContent = current.text;
+}
+
 function switchAuthTab(mode) {
     isRegisterMode = mode === 'register';
     const tabLogin = document.getElementById('tab-login');
     const tabRegister = document.getElementById('tab-register');
-    const btnText = document.getElementById('auth-btn-text');
-    const regFields = document.getElementById('register-extra-fields');
+    const btnSpan = document.querySelector('#auth-btn span');
+    const roleField = document.getElementById('role-selection-field');
+    const companyField = document.getElementById('company-name-field');
+    const passwordInput = document.getElementById('password-input');
 
     if (isRegisterMode) {
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
-        if (btnText) btnText.innerText = "Crear Cuenta y Entrar";
-        if (regFields) regFields.classList.remove('hidden');
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
+        if (btnSpan) btnSpan.innerText = "Crear Cuenta y Entrar";
+        if (roleField) roleField.classList.remove('hidden');
+        if (companyField) companyField.classList.remove('hidden');
+        if (passwordInput && passwordInput.value) checkPasswordStrength(passwordInput.value);
     } else {
-        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg bg-white text-emerald-800 shadow-sm transition-all";
-        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg text-emerald-700 hover:text-emerald-900 transition-all";
-        if (btnText) btnText.innerText = "Ingresar al Sistema";
-        if (regFields) regFields.classList.add('hidden');
+        if (tabLogin) tabLogin.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all bg-white text-emerald-800 shadow-sm";
+        if (tabRegister) tabRegister.className = "flex-1 py-2 text-sm font-bold rounded-lg transition-all text-emerald-600 hover:text-emerald-900";
+        if (btnSpan) btnSpan.innerText = "Ingresar al Sistema";
+        if (roleField) roleField.classList.add('hidden');
+        if (companyField) companyField.classList.add('hidden');
+        checkPasswordStrength('');
     }
 }
 
-function handleAuthSubmit(e) {
-    e.preventDefault();
-    const email = document.getElementById('email-input').value.trim();
-    const password = document.getElementById('password-input').value.trim();
+async function handleAuthSubmit(e) {
+    if (e) e.preventDefault();
+    const emailInput = document.getElementById('email-input');
+    const passwordInput = document.getElementById('password-input');
+    const email = emailInput ? emailInput.value.trim().toLowerCase() : '';
+    const password = passwordInput ? passwordInput.value.trim() : '';
     if (!email || !password) return;
+
+    const userKey = normalizeUserKey(email);
+    const localUsersKey = 'lacteos_victoria_users_v1';
+    const localUsers = JSON.parse(localStorage.getItem(localUsersKey) || '{}');
+
+    if (!state.registeredUsers || typeof state.registeredUsers !== 'object' || Array.isArray(state.registeredUsers)) {
+        state.registeredUsers = {};
+    }
+
+    // Sincronizar usuarios desde la nube si aún no han cargado
+    if (Object.keys(state.registeredUsers).length === 0) {
+        try {
+            const snap = await get(ref(db, `${STORAGE_KEY}/registeredUsers`));
+            if (snap.exists() && snap.val()) {
+                state.registeredUsers = snap.val();
+            }
+        } catch (_) {
+            // Continuar con respaldo local si hay demora de red
+        }
+    }
 
     if (isRegisterMode) {
         const companyNameInput = document.getElementById('company-name-input');
-        const roleSelect = document.getElementById('role-select');
+        const roleSelect = document.getElementById('user-role-input');
         const companyName = companyNameInput ? companyNameInput.value.trim() : '';
         const role = roleSelect ? roleSelect.value : 'admin';
 
         if (companyName) {
             state.companyName = companyName;
-            document.getElementById('app-company-name').innerText = companyName;
-            document.getElementById('receipt-company').innerText = companyName.toUpperCase();
+            const appNameEl = document.getElementById('app-company-name');
+            const receiptCompanyEl = document.getElementById('receipt-company');
+            const titleEl = document.getElementById('display-company-title');
+            if (appNameEl) appNameEl.innerText = companyName;
+            if (receiptCompanyEl) receiptCompanyEl.innerText = companyName.toUpperCase();
+            if (titleEl) titleEl.innerText = companyName;
         }
+
+        const newUser = {
+            email,
+            password,
+            role,
+            createdAt: new Date().toISOString()
+        };
+
+        state.registeredUsers[userKey] = newUser;
+        localUsers[userKey] = newUser;
+        localStorage.setItem(localUsersKey, JSON.stringify(localUsers));
+
         state.currentUserRole = role;
+        state.currentUserEmail = email;
+        saveData();
     } else {
-        if (email.toLowerCase().includes('conductor')) {
-            state.currentUserRole = 'conductor';
+        const existingUser = state.registeredUsers[userKey] || localUsers[userKey] || null;
+
+        if (existingUser) {
+            if (existingUser.password && existingUser.password !== password) {
+                alert("⚠️ Contraseña incorrecta.");
+                return;
+            }
+            state.currentUserRole = existingUser.role || (email.includes('conductor') ? 'conductor' : 'admin');
+            state.currentUserEmail = existingUser.email || email;
         } else {
-            state.currentUserRole = 'admin';
+            // Permite entrar directo con correos anteriores o nuevos sin bloqueos
+            const fallbackRole = email.includes('conductor') ? 'conductor' : 'admin';
+            const restoredUser = {
+                email,
+                password,
+                role: fallbackRole,
+                restoredAt: new Date().toISOString()
+            };
+            state.registeredUsers[userKey] = restoredUser;
+            localUsers[userKey] = restoredUser;
+            localStorage.setItem(localUsersKey, JSON.stringify(localUsers));
+
+            state.currentUserRole = fallbackRole;
+            state.currentUserEmail = email;
+            saveData();
         }
     }
-
-    state.currentUserEmail = email;
-    saveData();
 
     document.getElementById('auth-screen').classList.add('hidden');
     document.getElementById('main-app').classList.remove('hidden');
@@ -1865,6 +1974,7 @@ function switchModule(modName) {
 }
 
 // EXPORTAR FUNCIONES AL ÁMBITO GLOBAL
+window.checkPasswordStrength = checkPasswordStrength;
 window.switchAuthTab = switchAuthTab;
 window.handleAuthSubmit = handleAuthSubmit;
 window.switchModule = switchModule;
