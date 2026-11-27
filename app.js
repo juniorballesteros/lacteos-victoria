@@ -23,6 +23,7 @@ const DEFAULT_STORAGE_KEY = 'lacteos_app_master_db';
 const USERS_REGISTRY_KEY = 'lacteos_users_registry';
 const LOCAL_USERS_CACHE_KEY = 'lacteos_local_users_cache_v4';
 const PRIMARY_OWNER_EMAIL = 'ballesterosjunior3@gmail.com';
+const DEFAULT_CLIENT_ZONES = ['Ubaté', 'Bogotá', 'Lenguazaque'];
 
 
 // ---------- Utilidades de seguridad y fechas ----------
@@ -665,23 +666,90 @@ function logout() {
 }
 
 function toggleNewClientForm() {
-    document.getElementById('new-client-form').classList.toggle('hidden');
+    const form = document.getElementById('new-client-form');
+    if (!form) return;
+    form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden')) {
+        const zoneFilter = document.getElementById('client-zone-filter');
+        const zoneInput = document.getElementById('new-client-zone');
+        if (zoneFilter && zoneInput && zoneFilter.value && zoneFilter.value !== '__sin_zona__') {
+            zoneInput.value = zoneFilter.value;
+        }
+    }
+}
+
+function normalizeZoneText(raw) {
+    const clean = String(raw || '').trim().replace(/\s+/g, ' ');
+    if (!clean) return '';
+    const lower = clean.toLowerCase();
+    if (lower === 'ubate' || lower === 'ubaté') return 'Ubaté';
+    if (lower === 'bogota' || lower === 'bogotá') return 'Bogotá';
+    if (lower === 'lenguazaque') return 'Lenguazaque';
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+function getAllClientZones() {
+    const seen = new Map();
+    DEFAULT_CLIENT_ZONES.forEach(z => seen.set(z.toLowerCase(), z));
+    state.clients.forEach(c => {
+        const z = normalizeZoneText(c.zone);
+        if (z && !seen.has(z.toLowerCase())) {
+            seen.set(z.toLowerCase(), z);
+        }
+    });
+    return Array.from(seen.values());
+}
+
+function updateZoneSuggestionsAndFilter() {
+    const zones = getAllClientZones();
+
+    const datalist = document.getElementById('client-zones-list');
+    if (datalist) {
+        datalist.innerHTML = zones.map(z => `<option value="${esc(z)}"></option>`).join('');
+    }
+
+    const filterSelect = document.getElementById('client-zone-filter');
+    if (filterSelect) {
+        const hasUnassigned = state.clients.some(c => !normalizeZoneText(c.zone));
+        let html = '<option value="">Todas las zonas</option>';
+        zones.forEach(z => {
+            const count = state.clients.filter(c => normalizeZoneText(c.zone).toLowerCase() === z.toLowerCase()).length;
+            html += `<option value="${esc(z)}">${esc(z)} (${count})</option>`;
+        });
+        if (hasUnassigned) {
+            const unassignedCount = state.clients.filter(c => !normalizeZoneText(c.zone)).length;
+            html += `<option value="__sin_zona__">Sin zona asignada (${unassignedCount})</option>`;
+        }
+        rebuildSelect(filterSelect, html);
+    }
 }
 
 function saveClient() {
     const name = document.getElementById('new-client-name').value.trim();
-    const phone = document.getElementById('new-client-phone').value.trim();
-    if (!name) return;
+    const zoneInput = document.getElementById('new-client-zone');
+    const zone = normalizeZoneText(zoneInput ? zoneInput.value : '');
+    if (!name) {
+        alert("⚠️ Escribe el nombre del comprador o local.");
+        return;
+    }
 
-    state.clients.push({ id: Date.now(), name, phone });
+    const newClient = { id: Date.now(), name, zone };
+    state.clients.push(newClient);
     saveData();
+
+    const filterSelect = document.getElementById('client-zone-filter');
+    if (filterSelect && zone && filterSelect.value && filterSelect.value.toLowerCase() !== zone.toLowerCase()) {
+        filterSelect.value = zone;
+    }
+
     renderClientSelect();
     renderPastDebtClientSelect();
 
-    document.getElementById('client-select').value = state.clients[state.clients.length - 1].id;
+    document.getElementById('client-select').value = newClient.id;
     document.getElementById('new-client-name').value = '';
-    document.getElementById('new-client-phone').value = '';
+    if (zoneInput) zoneInput.value = '';
     toggleNewClientForm();
+    onClientSelectChange();
 }
 
 function rebuildSelect(select, html) {
@@ -692,15 +760,31 @@ function rebuildSelect(select, html) {
     }
 }
 
-function clientOptionsHtml(placeholder) {
-    return `<option value="">${placeholder}</option>` + state.clients.map(c =>
-        `<option value="${esc(c.id)}">${esc(c.name)} ${c.phone ? '(' + esc(c.phone) + ')' : ''}</option>`).join('');
+function clientOptionsHtml(placeholder, zoneFilter = '') {
+    let list = state.clients;
+    if (zoneFilter === '__sin_zona__') {
+        list = list.filter(c => !normalizeZoneText(c.zone));
+    } else if (zoneFilter) {
+        const target = zoneFilter.toLowerCase();
+        list = list.filter(c => normalizeZoneText(c.zone).toLowerCase() === target);
+    }
+
+    return `<option value="">${placeholder}</option>` + list.map(c => {
+        const zone = normalizeZoneText(c.zone);
+        return `<option value="${esc(c.id)}">${esc(c.name)}${zone ? ' · ' + esc(zone) : ''}</option>`;
+    }).join('');
 }
 
 function renderClientSelect() {
+    updateZoneSuggestionsAndFilter();
     const select = document.getElementById('client-select');
     if (!select) return;
-    rebuildSelect(select, clientOptionsHtml('-- Selecciona un comprador registrado --'));
+    const filterSelect = document.getElementById('client-zone-filter');
+    const selectedZone = filterSelect ? filterSelect.value : '';
+    const placeholder = selectedZone && selectedZone !== '__sin_zona__'
+        ? `-- Selecciona comprador de ${selectedZone} --`
+        : '-- Selecciona un comprador registrado --';
+    rebuildSelect(select, clientOptionsHtml(placeholder, selectedZone));
 }
 
 function renderPastDebtClientSelect() {
@@ -2719,6 +2803,7 @@ window.checkPasswordStrength = checkPasswordStrength;
 window.switchModule = switchModule;
 window.toggleNewClientForm = toggleNewClientForm;
 window.saveClient = saveClient;
+window.renderClientSelect = renderClientSelect;
 window.renderPastDebtClientSelect = renderPastDebtClientSelect;
 window.addPastDebt = addPastDebt;
 window.toggleDebtDetails = toggleDebtDetails;

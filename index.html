@@ -292,7 +292,14 @@
                                 <h4 class="text-xs font-bold text-emerald-900 uppercase">Agregar Comprador</h4>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <input type="text" id="new-client-name" placeholder="Nombre completo / Local" class="bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
-                                    <input type="text" id="new-client-phone" placeholder="Teléfono / WhatsApp" class="bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
+                                    <div>
+                                        <input type="text" id="new-client-zone" list="client-zones-list" placeholder="Ciudad / Ruta (Ej: Ubaté, Bogotá, Lenguazaque)" class="w-full bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
+                                        <datalist id="client-zones-list">
+                                            <option value="Ubaté"></option>
+                                            <option value="Bogotá"></option>
+                                            <option value="Lenguazaque"></option>
+                                        </datalist>
+                                    </div>
                                 </div>
                                 <div class="flex justify-end space-x-2">
                                     <button type="button" onclick="toggleNewClientForm()" class="px-3 py-1.5 text-xs text-slate-600 font-bold">Cancelar</button>
@@ -300,9 +307,20 @@
                                 </div>
                             </div>
 
-                            <select id="client-select" onchange="onClientSelectChange()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
-                                <option value="">-- Selecciona un comprador registrado --</option>
-                            </select>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Filtrar por Ciudad / Ruta</label>
+                                    <select id="client-zone-filter" onchange="renderClientSelect()" class="w-full bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 font-bold text-emerald-950 text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                        <option value="">Todas las zonas</option>
+                                    </select>
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Comprador</label>
+                                    <select id="client-select" onchange="onClientSelectChange()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                                        <option value="">-- Selecciona un comprador registrado --</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
