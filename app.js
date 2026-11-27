@@ -1,6 +1,6 @@
 // Importar los SDKs necesarios de Firebase (versión modular 13.2.0)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
+import { getDatabase, ref, set, get, update, onValue } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-database.js";
 
 // Credenciales oficiales de tu proyecto en Firebase
 const firebaseConfig = {
@@ -24,8 +24,72 @@ const USERS_REGISTRY_KEY = 'lacteos_users_registry';
 const LOCAL_USERS_CACHE_KEY = 'lacteos_local_users_cache_v4';
 const PRIMARY_OWNER_EMAIL = 'ballesterosjunior3@gmail.com';
 
+
+// ---------- Utilidades de seguridad y fechas ----------
+function esc(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function toISODate(raw) {
+    const str = String(raw || '').trim();
+    let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(str);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return '';
+}
+
+function bytesToHex(bytes) {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashPassword(password, salt) {
+    if (!window.crypto || !window.crypto.subtle) {
+        throw new Error('El navegador no permite cifrar contraseñas. Abre la app desde https:// o localhost.');
+    }
+    const data = new TextEncoder().encode(`${salt}:${password}`);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return bytesToHex(new Uint8Array(digest));
+}
+
+async function buildPasswordFields(password) {
+    const saltBytes = new Uint8Array(16);
+    crypto.getRandomValues(saltBytes);
+    const salt = bytesToHex(saltBytes);
+    return { salt, passwordHash: await hashPassword(password, salt) };
+}
+
+// Devuelve true si la clave es correcta. Migra cuentas antiguas (clave en texto plano) a hash.
+async function verifyAndUpgradePassword(userRecord, password) {
+    if (userRecord.passwordHash && userRecord.salt) {
+        return (await hashPassword(password, userRecord.salt)) === userRecord.passwordHash;
+    }
+    if (userRecord.password !== undefined && userRecord.password === password) {
+        const fields = await buildPasswordFields(password);
+        userRecord.salt = fields.salt;
+        userRecord.passwordHash = fields.passwordHash;
+        delete userRecord.password;
+        await persistRegisteredUser(userRecord);
+        return true;
+    }
+    return false;
+}
+
 let currentWorkspaceKey = null;
 let unsubscribeWorkspaceListener = null;
+
+const SYNC_KEYS = ['companyName', 'clients', 'products', 'productionLogs', 'salesHistory', 'expenses',
+    'milkProviders', 'dailyMilkLogs', 'milkPayments', 'yieldLogs', 'clientDebts'];
+let lastSyncedJSON = {};
+
+function snapshotSyncState() {
+    SYNC_KEYS.forEach(k => { lastSyncedJSON[k] = JSON.stringify(state[k] ?? null); });
+}
 
 function createEmptyAppState() {
     return {
@@ -154,8 +218,11 @@ function refreshAllVisibleTables() {
         renderYieldTable();
         renderMonthlyBalance();
         renderClientAccountsTable();
-        onYieldDateChange();
-        onYieldProductSelectChange();
+        const yieldForm = document.getElementById('yield-form');
+        if (!(yieldForm && yieldForm.contains(document.activeElement))) {
+            onYieldDateChange();
+            onYieldProductSelectChange();
+        }
     }
 }
 
@@ -188,7 +255,11 @@ function subscribeToWorkspace(workspaceKey, accountRecord) {
             state.dailyMilkLogs = parsed.dailyMilkLogs || [];
             state.milkPayments = parsed.milkPayments || [];
             state.yieldLogs = parsed.yieldLogs || [];
-            state.clientDebts = parsed.clientDebts || [];
+            state.clientDebts = (parsed.clientDebts || []).map(d => {
+                const iso = toISODate(d.date);
+                return iso && iso !== d.date ? { ...d, date: iso } : d;
+            });
+            snapshotSyncState();
         } else {
             // Espacio de trabajo nuevo e independiente (sin compartir datos de otras cuentas)
             const fresh = createEmptyAppState();
@@ -196,6 +267,7 @@ function subscribeToWorkspace(workspaceKey, accountRecord) {
             fresh.currentUserRole = accountRecord.role || 'admin';
             fresh.currentUserEmail = accountRecord.email;
             state = fresh;
+            lastSyncedJSON = {};
             saveData();
         }
 
@@ -206,22 +278,21 @@ function subscribeToWorkspace(workspaceKey, accountRecord) {
 function saveData() {
     if (!currentWorkspaceKey) return;
 
-    const dataToSave = {
-        companyName: state.companyName,
-        clients: state.clients,
-        products: state.products,
-        productionLogs: state.productionLogs,
-        salesHistory: state.salesHistory,
-        expenses: state.expenses,
-        milkProviders: state.milkProviders,
-        dailyMilkLogs: state.dailyMilkLogs,
-        milkPayments: state.milkPayments,
-        yieldLogs: state.yieldLogs,
-        clientDebts: state.clientDebts
-    };
+    // Solo se escriben las colecciones que cambiaron. Así el conductor (leche) y el dueño
+    // no se sobrescriben entre sí cuando trabajan al mismo tiempo en colecciones distintas.
+    const changes = {};
+    SYNC_KEYS.forEach(k => {
+        const json = JSON.stringify(state[k] ?? null);
+        if (json !== lastSyncedJSON[k]) {
+            changes[k] = state[k] ?? null;
+            lastSyncedJSON[k] = json;
+        }
+    });
+    if (Object.keys(changes).length === 0) return;
 
-    set(ref(db, currentWorkspaceKey), dataToSave).catch((error) => {
+    update(ref(db, currentWorkspaceKey), changes).catch((error) => {
         console.error("Error al sincronizar con Firebase:", error);
+        alert("⚠️ No se pudo guardar en la nube. Revisa tu conexión: el último cambio podría no haberse guardado.");
     });
 }
 
@@ -233,7 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (titleEl) titleEl.innerText = 'Lácteos Victoria';
 
     const pastDebtDateEl = document.getElementById('past-debt-date');
-    if (pastDebtDateEl) pastDebtDateEl.valueAsDate = new Date();
+    if (pastDebtDateEl) pastDebtDateEl.value = getLocalDateString();
 });
 
 function updateDateDisplay() {
@@ -428,7 +499,7 @@ async function handleAuthSubmit(e) {
 
             const newAccount = {
                 email,
-                password,
+                ...(await buildPasswordFields(password)),
                 role,
                 companyName: resolvedCompanyName,
                 workspaceKey,
@@ -440,7 +511,7 @@ async function handleAuthSubmit(e) {
             enterAuthenticatedSession(newAccount);
         } else {
             if (existingUser) {
-                if (existingUser.password !== password) {
+                if (!(await verifyAndUpgradePassword(existingUser, password))) {
                     alert("❌ Contraseña incorrecta para este correo. Verifica e intenta nuevamente.");
                     return;
                 }
@@ -463,7 +534,7 @@ async function handleAuthSubmit(e) {
             if (email === PRIMARY_OWNER_EMAIL) {
                 const ownerAccount = {
                     email: PRIMARY_OWNER_EMAIL,
-                    password,
+                    ...(await buildPasswordFields(password)),
                     role: 'admin',
                     companyName: 'Lácteos Victoria',
                     workspaceKey: DEFAULT_STORAGE_KEY,
@@ -555,22 +626,29 @@ function saveClient() {
     toggleNewClientForm();
 }
 
+function rebuildSelect(select, html) {
+    const previous = select.value;
+    select.innerHTML = html;
+    if (previous && Array.from(select.options).some(o => o.value === previous)) {
+        select.value = previous;
+    }
+}
+
+function clientOptionsHtml(placeholder) {
+    return `<option value="">${placeholder}</option>` + state.clients.map(c =>
+        `<option value="${esc(c.id)}">${esc(c.name)} ${c.phone ? '(' + esc(c.phone) + ')' : ''}</option>`).join('');
+}
+
 function renderClientSelect() {
     const select = document.getElementById('client-select');
     if (!select) return;
-    select.innerHTML = '<option value="">-- Selecciona un comprador registrado --</option>';
-    state.clients.forEach(c => {
-        select.innerHTML += `<option value="${c.id}">${c.name} ${c.phone ? '(' + c.phone + ')' : ''}</option>`;
-    });
+    rebuildSelect(select, clientOptionsHtml('-- Selecciona un comprador registrado --'));
 }
 
 function renderPastDebtClientSelect() {
     const select = document.getElementById('past-debt-client-select');
     if (!select) return;
-    select.innerHTML = '<option value="">-- Selecciona cliente --</option>';
-    state.clients.forEach(c => {
-        select.innerHTML += `<option value="${c.id}">${c.name} ${c.phone ? '(' + c.phone + ')' : ''}</option>`;
-    });
+    rebuildSelect(select, clientOptionsHtml('-- Selecciona cliente --'));
 }
 
 function addPastDebt(e) {
@@ -603,7 +681,7 @@ function addPastDebt(e) {
     saveData();
     document.getElementById('past-debt-form').reset();
     const dateInput = document.getElementById('past-debt-date');
-    if (dateInput) dateInput.valueAsDate = new Date();
+    if (dateInput) dateInput.value = getLocalDateString();
 
     renderClientAccountsTable();
     renderMonthlyBalance();
@@ -679,7 +757,7 @@ function renderClientAccountsTable() {
 
         summaryTbody.innerHTML += `
             <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
-                <td class="py-3 px-4 font-bold text-slate-900">${summary.clientName}</td>
+                <td class="py-3 px-4 font-bold text-slate-900">${esc(summary.clientName)}</td>
                 <td class="py-3 px-4 text-right font-mono font-bold text-slate-800">$${summary.totalFiado.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono text-emerald-700">$${summary.totalAbonado.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${summary.saldoPendiente.toLocaleString('es-CO')}</td>
@@ -717,7 +795,7 @@ function renderClientAccountsTable() {
 
                 return `
                     <tr class="border-b border-slate-100">
-                        <td class="py-1.5 px-3 font-bold text-slate-800">${item.name}</td>
+                        <td class="py-1.5 px-3 font-bold text-slate-800">${esc(item.name)}</td>
                         <td class="py-1.5 px-3 font-mono text-slate-700">${cantidadTexto}</td>
                         <td class="py-1.5 px-3 text-right font-mono text-slate-600">$${precioUnitario.toLocaleString('es-CO')}</td>
                         <td class="py-1.5 px-3 text-right font-mono font-bold text-slate-900">$${subtotalItem.toLocaleString('es-CO')}</td>
@@ -727,7 +805,7 @@ function renderClientAccountsTable() {
             detailContentHtml = `
                 <div class="bg-white rounded-xl p-3 border border-emerald-200 space-y-2">
                     <div class="flex flex-wrap justify-between items-center border-b border-slate-100 pb-2 gap-2">
-                        <span class="text-xs font-bold text-emerald-900 uppercase">Mercancía vendida el ${debt.date} — ${debt.clientName}</span>
+                        <span class="text-xs font-bold text-emerald-900 uppercase">Mercancía vendida el ${esc(debt.date)} — ${esc(debt.clientName)}</span>
                         <span class="text-xs font-mono font-bold text-slate-700">Total Venta: $${totalOriginalVenta.toLocaleString('es-CO')}</span>
                     </div>
                     <div class="overflow-x-auto">
@@ -754,7 +832,7 @@ function renderClientAccountsTable() {
             detailContentHtml = `
                 <div class="bg-white rounded-xl p-3 border border-slate-200 flex flex-wrap justify-between items-center gap-2 text-xs">
                     <div>
-                        <p class="font-bold text-slate-800">${debt.concept}</p>
+                        <p class="font-bold text-slate-800">${esc(debt.concept)}</p>
                         <p class="text-slate-500 mt-0.5">Fecha: ${debt.date} • Registro sin desglose de productos del POS</p>
                     </div>
                     <div class="font-mono space-x-3">
@@ -768,8 +846,8 @@ function renderClientAccountsTable() {
         detailedTbody.innerHTML += `
             <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
                 <td class="py-3 px-4 font-mono text-xs text-slate-500">${debt.date}</td>
-                <td class="py-3 px-4 font-bold text-slate-900">${debt.clientName}</td>
-                <td class="py-3 px-4 text-slate-700 text-xs">${debt.concept}</td>
+                <td class="py-3 px-4 font-bold text-slate-900">${esc(debt.clientName)}</td>
+                <td class="py-3 px-4 text-slate-700 text-xs">${esc(debt.concept)}</td>
                 <td class="py-3 px-4 text-right font-mono font-bold text-slate-800">$${debt.totalAmount.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono text-emerald-700">$${debt.paidAmount.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${saldoPendiente.toLocaleString('es-CO')}</td>
@@ -848,13 +926,16 @@ function addExpense(e) {
     const name = document.getElementById('exp-name-entry').value.trim();
     const amount = parseFloat(document.getElementById('exp-amount-entry').value) || 0;
 
-    if (!date || !name || amount <= 0) return;
+    if (!date || !name || amount <= 0) {
+        alert("⚠️ Completa fecha, concepto y un valor mayor a 0.");
+        return;
+    }
 
     state.expenses.unshift({ id: Date.now(), date, name, amount });
     saveData();
 
     document.getElementById('expense-form').reset();
-    document.getElementById('exp-date-entry').valueAsDate = new Date();
+    document.getElementById('exp-date-entry').value = getLocalDateString();
     renderExpensesTable();
     renderSalesHistory();
     renderMonthlyBalance();
@@ -874,7 +955,7 @@ function renderExpensesTable() {
         tbody.innerHTML += `
             <tr class="border-b border-red-50 hover:bg-red-50/30">
                 <td class="py-3 px-4 font-mono text-xs text-slate-500">${exp.date}</td>
-                <td class="py-3 px-4 font-bold text-slate-800">${exp.name}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${esc(exp.name)}</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-red-600">-$${exp.amount.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right"><button onclick="deleteExpense(${exp.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
             </tr>`;
@@ -944,10 +1025,8 @@ function addMilkProvider(e) {
 function renderMilkProvidersSelect() {
     const select = document.getElementById('daily-milk-provider-select');
     if (!select) return;
-    select.innerHTML = '<option value="">-- Elige un proveedor --</option>';
-    state.milkProviders.forEach(p => {
-        select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
-    });
+    rebuildSelect(select, '<option value="">-- Elige un proveedor --</option>' +
+        state.milkProviders.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join(''));
 }
 
 function renderProvidersTable() {
@@ -968,13 +1047,13 @@ function renderProvidersTable() {
     state.milkProviders.forEach(prov => {
         let totalLiters = 0;
         state.dailyMilkLogs.forEach(log => {
-            if (log.providerId === prov.id) totalLiters += log.liters;
+            if (log.providerId === prov.id && !log.paid) totalLiters += log.liters;
         });
 
         const totalToPay = totalLiters * prov.pricePerLiter;
         tbody.innerHTML += `
             <tr class="border-b border-sky-50 hover:bg-sky-50/40">
-                <td class="py-3 px-4 font-bold text-slate-800">${prov.name}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${esc(prov.name)}</td>
                 <td class="py-3 px-4 font-mono text-slate-600">$${prov.pricePerLiter.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 font-mono text-sky-800 font-bold">${totalLiters} Litros</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">$${totalToPay.toLocaleString('es-CO')}</td>
@@ -993,7 +1072,7 @@ function payProviderQuincena(providerId) {
 
     let totalLiters = 0;
     state.dailyMilkLogs.forEach(log => {
-        if (log.providerId === prov.id) totalLiters += log.liters;
+        if (log.providerId === prov.id && !log.paid) totalLiters += log.liters;
     });
 
     const totalToPay = totalLiters * prov.pricePerLiter;
@@ -1019,7 +1098,9 @@ function payProviderQuincena(providerId) {
         amount: totalToPay
     });
 
-    state.dailyMilkLogs = state.dailyMilkLogs.filter(log => log.providerId !== prov.id);
+    // Los registros se marcan como liquidados (no se borran) para conservar el historial y el costo del Módulo 5.
+    state.dailyMilkLogs = state.dailyMilkLogs.map(log =>
+        (log.providerId === prov.id && !log.paid) ? { ...log, paid: true, paidDate: paymentDate } : log);
 
     saveData();
     renderProvidersTable();
@@ -1044,7 +1125,7 @@ function renderMilkPaymentsTable() {
         tbody.innerHTML += `
             <tr class="border-b border-sky-50 hover:bg-sky-50/30">
                 <td class="py-3 px-4 font-mono text-xs text-slate-500">${payment.date}</td>
-                <td class="py-3 px-4 font-bold text-slate-800">${payment.providerName}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${esc(payment.providerName)}</td>
                 <td class="py-3 px-4 font-mono text-sky-800 font-bold">${payment.liters} Litros</td>
                 <td class="py-3 px-4 font-mono text-slate-600">$${(payment.pricePerLiter || 0).toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">$${payment.totalPaid.toLocaleString('es-CO')}</td>
@@ -1138,8 +1219,8 @@ function renderDailyMilkTable() {
             tbody.innerHTML += `
                 <tr class="border-b border-sky-50">
                     <td class="py-3 px-4 font-mono text-xs text-slate-500">${log.date}</td>
-                    <td class="py-3 px-4 font-bold text-slate-800">${log.providerName} <span class="text-[10px] text-slate-400">(${log.registeredBy})</span></td>
-                    <td class="py-3 px-4 font-mono text-sky-800 font-bold">${log.liters} Litros</td>
+                    <td class="py-3 px-4 font-bold text-slate-800">${esc(log.providerName)} <span class="text-[10px] text-slate-400">(${esc(log.registeredBy)})</span></td>
+                    <td class="py-3 px-4 font-mono text-sky-800 font-bold">${log.liters} Litros${log.paid ? ' <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-sans">Liquidado</span>' : ''}</td>
                     <td class="py-3 px-4 text-right"><button onclick="deleteDailyMilk(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
                 </tr>`;
         });
@@ -1162,8 +1243,9 @@ function deleteDailyMilk(id) {
 
 function resetQuincena() {
     if (state.currentUserRole === 'conductor') return;
-    if (confirm("¿Reiniciar quincena? Se limpiará el acumulado.")) {
-        state.dailyMilkLogs = [];
+    if (confirm("¿Cerrar la quincena? Los litros pendientes dejan de sumar al acumulado (quedan en el historial). Esto NO registra ningún pago: usa 'Pagar' en cada proveedor para pagar.")) {
+        const closeDate = getLocalDateString();
+        state.dailyMilkLogs = state.dailyMilkLogs.map(log => log.paid ? log : { ...log, paid: true, paidDate: closeDate });
         saveData();
         renderDailyMilkTable();
         renderProvidersTable();
@@ -1702,7 +1784,7 @@ function renderYieldTable() {
         tbody.innerHTML += `
             <tr class="border-b border-amber-50 hover:bg-amber-50/30">
                 <td class="py-3 px-4">
-                    <span class="font-bold text-slate-900">${productName}</span><br>
+                    <span class="font-bold text-slate-900">${esc(productName)}</span><br>
                     <span class="font-mono text-[11px] text-slate-500">${log.date}</span>
                 </td>
                 <td class="py-3 px-4 font-bold text-slate-800">${cantinasText} <span class="text-[11px] text-slate-400">(${liters} L)</span></td>
@@ -1753,11 +1835,11 @@ function handleSaleTypeChange() {
     if (saleType === 'kilos') {
         if (groupBlocks) groupBlocks.classList.remove('hidden');
         if (groupUnits) groupUnits.classList.add('hidden');
-        if (labelPrice) labelPrice.innerText = 'Precio por Kilo ($)';
+        if (labelPrice) labelPrice.innerText = 'Precio Base por Kilo ($)';
     } else {
         if (groupBlocks) groupBlocks.classList.add('hidden');
         if (groupUnits) groupUnits.classList.remove('hidden');
-        if (labelPrice) labelPrice.innerText = 'Precio por Unidad ($)';
+        if (labelPrice) labelPrice.innerText = 'Precio Base por Unidad ($)';
     }
 }
 
@@ -1768,14 +1850,20 @@ function addDailyProduction(e) {
     const price = parseFloat(document.getElementById('prod-price-entry').value) || 0;
     const date = document.getElementById('prod-date-entry').value;
 
-    if (!productName || price <= 0 || !date) return;
+    if (!productName || price <= 0 || !date) {
+        alert("⚠️ Completa la fecha, el nombre del producto y un precio base mayor a 0.");
+        return;
+    }
 
     let product = state.products.find(p => p.name.toLowerCase() === productName.toLowerCase());
 
     if (saleType === 'kilos') {
         const blocks = parseFloat(document.getElementById('prod-blocks-entry').value) || 0;
         const kilos = parseFloat(document.getElementById('prod-kilos-entry').value) || 0;
-        if (kilos <= 0) return;
+        if (kilos <= 0) {
+            alert("⚠️ Ingresa el peso total en kilos (mayor a 0).");
+            return;
+        }
 
         if (product) {
             product.blocks = (product.blocks || 0) + blocks;
@@ -1788,7 +1876,10 @@ function addDailyProduction(e) {
         state.productionLogs.unshift({ id: Date.now(), productName, detail: `+${blocks} blq / +${kilos} kg`, date });
     } else {
         const stockUnits = parseFloat(document.getElementById('prod-units-entry').value) || 0;
-        if (stockUnits <= 0) return;
+        if (stockUnits <= 0) {
+            alert("⚠️ Ingresa la cantidad de unidades (mayor a 0).");
+            return;
+        }
 
         if (product) {
             product.stockUnits = (product.stockUnits || 0) + stockUnits;
@@ -1802,7 +1893,7 @@ function addDailyProduction(e) {
 
     saveData();
     document.getElementById('production-form').reset();
-    document.getElementById('prod-date-entry').valueAsDate = new Date();
+    document.getElementById('prod-date-entry').value = getLocalDateString();
     handleSaleTypeChange();
     renderInventoryTable();
     renderProductsPOS();
@@ -1825,7 +1916,7 @@ function renderInventoryTable() {
 
         tbody.innerHTML += `
             <tr class="border-b border-emerald-50">
-                <td class="py-3 px-4 font-bold text-slate-800">${p.name}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${esc(p.name)}</td>
                 <td class="py-3 px-4 font-mono text-emerald-700 font-bold">${priceText}</td>
                 <td class="py-3 px-4 font-mono font-bold text-slate-700">${stockText}</td>
                 <td class="py-3 px-4 text-right">
@@ -1864,7 +1955,7 @@ function renderProductionHistory() {
     if (!container) return;
     container.innerHTML = '';
     state.productionLogs.slice(0, 10).forEach(log => {
-        container.innerHTML += `<div class="flex justify-between items-center bg-emerald-50/60 p-2.5 rounded-xl text-xs border border-emerald-100"><div><p class="font-bold text-emerald-950">${log.productName}</p><p class="text-[10px] text-slate-500">${log.date}</p></div><span class="font-mono font-bold text-emerald-700 bg-white px-2 py-1 rounded-lg">${log.detail}</span></div>`;
+        container.innerHTML += `<div class="flex justify-between items-center bg-emerald-50/60 p-2.5 rounded-xl text-xs border border-emerald-100"><div><p class="font-bold text-emerald-950">${esc(log.productName)}</p><p class="text-[10px] text-slate-500">${log.date}</p></div><span class="font-mono font-bold text-emerald-700 bg-white px-2 py-1 rounded-lg">${esc(log.detail)}</span></div>`;
     });
 }
 
@@ -1878,17 +1969,26 @@ function renderProductsPOS() {
         return;
     }
 
+    const client = getSelectedClient();
     state.products.forEach(p => {
-        let isAvailable = p.saleType === 'kilos' ? p.kilos > 0 : p.stockUnits > 0;
-        let stockBadge = p.saleType === 'kilos' ? `Stock: ${p.blocks || 0} blq (${p.kilos} kg)` : `Stock: ${p.stockUnits} und`;
-        let priceText = p.saleType === 'kilos' ? `$${p.pricePerKg.toLocaleString('es-CO')} / kg` : `$${p.pricePerUnit.toLocaleString('es-CO')} / und`;
+        const isAvailable = p.saleType === 'kilos' ? p.kilos > 0 : p.stockUnits > 0;
+        const stockBadge = p.saleType === 'kilos' ? `Stock: ${p.blocks || 0} blq (${p.kilos} kg)` : `Stock: ${p.stockUnits} und`;
+        const unitSuffix = p.saleType === 'kilos' ? 'kg' : 'und';
+        const basePrice = getBasePrice(p);
+        const clientPrice = client ? getClientPrice(client, p) : basePrice;
+        const hasSpecial = client && clientPrice !== basePrice;
+        const priceHtml = hasSpecial
+            ? `<p class="text-base font-black text-emerald-700 mt-1">$${clientPrice.toLocaleString('es-CO')} / ${unitSuffix}</p>
+               <p class="text-[11px] text-slate-500">Precio de ${esc(client.name)} · Base: $${basePrice.toLocaleString('es-CO')}</p>`
+            : `<p class="text-base font-black text-emerald-700 mt-1">$${basePrice.toLocaleString('es-CO')} / ${unitSuffix}</p>
+               <p class="text-[11px] text-slate-500">Precio base</p>`;
 
         grid.innerHTML += `
             <div class="bg-white border border-emerald-100 rounded-xl p-4 flex flex-col justify-between shadow-sm">
                 <div>
                     <span class="text-[10px] font-bold ${isAvailable ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'} px-2 py-0.5 rounded-full uppercase">${stockBadge}</span>
-                    <h4 class="font-bold text-slate-800 mt-2 text-sm">${p.name}</h4>
-                    <p class="text-base font-black text-emerald-700 mt-1">${priceText}</p>
+                    <h4 class="font-bold text-slate-800 mt-2 text-sm">${esc(p.name)}</h4>
+                    ${priceHtml}
                 </div>
                 <button onclick="promptSellProduct(${p.id})" ${!isAvailable ? 'disabled' : ''} class="mt-3 w-full ${isAvailable ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'} font-bold py-2 rounded-lg text-xs">
                     ${isAvailable ? 'Vender' : 'Sin Stock'}
@@ -1898,28 +1998,87 @@ function renderProductsPOS() {
     if (window.lucide) lucide.createIcons();
 }
 
+function getSelectedClient() {
+    const select = document.getElementById('client-select');
+    if (!select || !select.value) return null;
+    return state.clients.find(c => String(c.id) === String(select.value)) || null;
+}
+
+function getBasePrice(product) {
+    return product.saleType === 'kilos' ? (product.pricePerKg || 0) : (product.pricePerUnit || 0);
+}
+
+function getClientPrice(client, product) {
+    const special = client && client.prices ? Number(client.prices['p_' + product.id]) : 0;
+    return special > 0 ? special : getBasePrice(product);
+}
+
+function onClientSelectChange() {
+    const client = getSelectedClient();
+    // Si ya hay productos en el carrito, se recalculan con los precios del comprador elegido
+    state.cart.forEach(item => {
+        const product = state.products.find(p => p.id === item.id);
+        if (product) item.price = getClientPrice(client, product);
+    });
+    renderProductsPOS();
+    renderCart();
+}
+
 function promptSellProduct(productId) {
     const product = state.products.find(p => p.id === productId);
     if (!product) return;
 
-    if (product.saleType === 'kilos') {
-        const inputKilos = prompt(`¿Cuántos kilos de "${product.name}" vas a vender? (Stock: ${product.kilos} kg):`, "1");
-        if (inputKilos === null) return;
-        const kilosToSell = parseFloat(inputKilos);
-        if (isNaN(kilosToSell) || kilosToSell <= 0 || kilosToSell > product.kilos) return;
-
-        const inputBlocks = prompt(`¿Cuántos bloques físicos equivalentes se entregan? (Stock: ${product.blocks || 0} blq):`, "1");
-        const blocksToSell = inputBlocks !== null ? parseFloat(inputBlocks) || 0 : 0;
-
-        state.cart.push({ id: product.id, name: product.name, saleType: 'kilos', price: product.pricePerKg, kilos: kilosToSell, blocksEquivalent: blocksToSell, units: 0 });
-    } else {
-        const inputUnits = prompt(`¿Cuántas unidades de "${product.name}" vas a vender? (Stock: ${product.stockUnits}):`, "1");
-        if (inputUnits === null) return;
-        const unitsToSell = parseFloat(inputUnits);
-        if (isNaN(unitsToSell) || unitsToSell <= 0 || unitsToSell > product.stockUnits) return;
-
-        state.cart.push({ id: product.id, name: product.name, saleType: 'unidad', price: product.pricePerUnit, kilos: 0, blocksEquivalent: 0, units: unitsToSell });
+    const client = getSelectedClient();
+    if (!client) {
+        alert("⚠️ Primero selecciona el comprador (paso 1): cada comprador tiene su propio precio.");
+        return;
     }
+
+    const isKilos = product.saleType === 'kilos';
+    const inCart = state.cart.filter(i => i.id === product.id)
+        .reduce((acc, i) => acc + (isKilos ? i.kilos : i.units), 0);
+    const available = (isKilos ? product.kilos : product.stockUnits) - inCart;
+    const unitName = isKilos ? 'kilos' : 'unidades';
+
+    const inputQty = prompt(`¿Cuántos ${unitName} de "${product.name}" vas a vender a ${client.name}? (Disponible: ${available})`, "1");
+    if (inputQty === null) return;
+    const qty = parseNumericInput(inputQty);
+    if (qty <= 0 || qty > available) {
+        alert(`⚠️ Cantidad no válida. Disponible: ${available} ${unitName}.`);
+        return;
+    }
+
+    let blocks = 0;
+    if (isKilos) {
+        const inputBlocks = prompt(`¿Cuántos bloques físicos equivalentes se entregan? (Stock: ${product.blocks || 0} blq):`, "1");
+        blocks = inputBlocks !== null ? parseNumericInput(inputBlocks) : 0;
+    }
+
+    const basePrice = getBasePrice(product);
+    const suggested = getClientPrice(client, product);
+    const priceLabel = isKilos ? 'por kilo' : 'por unidad';
+    const inputPrice = prompt(`Precio ${priceLabel} para ${client.name}\n(Precio base: $${basePrice.toLocaleString('es-CO')})`, suggested);
+    if (inputPrice === null) return;
+    const price = parseNumericInput(inputPrice);
+    if (price <= 0) {
+        alert("⚠️ El precio debe ser mayor a 0.");
+        return;
+    }
+
+    if (price !== suggested) {
+        if (confirm(`¿Guardar $${price.toLocaleString('es-CO')} como precio de ${client.name} para "${product.name}"?\n\nAceptar = queda guardado para próximas ventas.\nCancelar = solo aplica a esta venta.`)) {
+            client.prices = client.prices || {};
+            if (price === basePrice) delete client.prices['p_' + product.id];
+            else client.prices['p_' + product.id] = price;
+            saveData();
+            renderProductsPOS();
+        }
+    }
+
+    state.cart.push({
+        id: product.id, name: product.name, saleType: product.saleType, price, basePrice,
+        kilos: isKilos ? qty : 0, blocksEquivalent: blocks, units: isKilos ? 0 : qty
+    });
     renderCart();
 }
 
@@ -1944,7 +2103,7 @@ function renderCart() {
         cartContainer.innerHTML += `
             <div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white gap-2">
                 <div class="flex-1">
-                    <p class="font-bold">${item.name}</p>
+                    <p class="font-bold">${esc(item.name)}</p>
                     <p class="text-emerald-300">${desc} — <span class="font-mono font-bold">$${itemTotal.toLocaleString('es-CO')}</span></p>
                 </div>
                 <button onclick="removeFromCart(${index})" class="text-red-400 hover:text-red-300 bg-emerald-950/80 p-1.5 rounded-lg transition-colors" title="Eliminar producto">
@@ -1972,7 +2131,18 @@ function calculateChange() {
     const labelChangeText = document.getElementById('label-change-text');
     if (!changeEl || !labelChangeText) return;
 
-    if (diff >= 0) {
+    const client = getSelectedClient();
+    const pending = client
+        ? state.clientDebts.filter(d => String(d.clientId) === String(client.id) && d.status === 'pendiente')
+            .reduce((acc, d) => acc + Math.max(0, d.totalAmount - d.paidAmount), 0)
+        : 0;
+
+    if (diff > 0 && pending > 0) {
+        const abono = Math.min(diff, pending);
+        labelChangeText.innerText = `Abona a deuda $${abono.toLocaleString('es-CO')} · Cambio:`;
+        changeEl.innerText = `$${(diff - abono).toLocaleString('es-CO')}`;
+        changeEl.className = "text-lg font-mono font-bold text-emerald-400";
+    } else if (diff >= 0) {
         labelChangeText.innerText = "Cambio / Vueltas:";
         changeEl.innerText = `$${diff.toLocaleString('es-CO')}`;
         changeEl.className = "text-lg font-mono font-bold text-emerald-400";
@@ -1999,6 +2169,23 @@ function processSaleAndPrint() {
     const totalVenta = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
     const dineroRecibido = parseFloat(document.getElementById('received-amount').value) || 0;
 
+    // Validar stock total por producto (el mismo producto puede estar en varias líneas)
+    const needed = {};
+    state.cart.forEach(i => {
+        needed[i.id] = needed[i.id] || { kilos: 0, units: 0 };
+        needed[i.id].kilos += i.kilos || 0;
+        needed[i.id].units += i.units || 0;
+    });
+    for (const id of Object.keys(needed)) {
+        const p = state.products.find(x => String(x.id) === id);
+        if (!p) continue;
+        const short = p.saleType === 'kilos' ? needed[id].kilos > p.kilos + 1e-9 : needed[id].units > p.stockUnits;
+        if (short) {
+            alert(`⚠️ No hay stock suficiente de "${p.name}" para esta venta. Quita o reduce cantidades.`);
+            return;
+        }
+    }
+
     state.cart.forEach(item => {
         const product = state.products.find(p => p.id === item.id);
         if (product) {
@@ -2013,6 +2200,10 @@ function processSaleAndPrint() {
 
     let dineroEntraCaja = 0;
     let montoFiado = 0;
+    let abonoADeudas = 0;
+    let cambioReal = 0;
+    const abonosAplicados = [];
+    const hoyISO = getLocalDateString();
 
     if (dineroRecibido < totalVenta) {
         montoFiado = totalVenta - dineroRecibido;
@@ -2026,7 +2217,7 @@ function processSaleAndPrint() {
             id: Date.now(),
             clientId: client.id,
             clientName: client.name,
-            date: new Date().toLocaleDateString('es-CO'),
+            date: hoyISO,
             concept: `Venta Directa: ${itemsSummary}`,
             items: state.cart.map(i => ({ ...i })),
             totalVentaOriginal: totalVenta,
@@ -2035,34 +2226,33 @@ function processSaleAndPrint() {
             paidAmount: 0,
             status: 'pendiente'
         });
-    } else if (dineroRecibido > totalVenta) {
+    } else {
         dineroEntraCaja = totalVenta;
-        let excedenteAbono = dineroRecibido - totalVenta;
+        let excedente = dineroRecibido - totalVenta;
 
+        // El sobrante abona primero a las deudas más antiguas; lo que no se use es el cambio real
         const clientPendings = state.clientDebts.filter(d => d.clientId == client.id && d.status === 'pendiente');
         clientPendings.sort((a, b) => a.id - b.id);
 
-        for (let debt of clientPendings) {
-            if (excedenteAbono <= 0) break;
+        for (const debt of clientPendings) {
+            if (excedente <= 0) break;
             const saldoDeuda = debt.totalAmount - debt.paidAmount;
-            if (excedenteAbono >= saldoDeuda) {
-                excedenteAbono -= saldoDeuda;
-                debt.paidAmount = debt.totalAmount;
-                debt.status = 'pagado';
-            } else {
-                debt.paidAmount += excedenteAbono;
-                excedenteAbono = 0;
-            }
+            const aplicado = Math.min(excedente, saldoDeuda);
+            if (aplicado <= 0) continue;
+            debt.paidAmount += aplicado;
+            if (debt.paidAmount >= debt.totalAmount) debt.status = 'pagado';
+            excedente -= aplicado;
+            abonoADeudas += aplicado;
+            abonosAplicados.push({ debt, aplicado });
         }
-    } else {
-        dineroEntraCaja = totalVenta;
+        cambioReal = excedente;
     }
 
     if (dineroEntraCaja > 0) {
         state.salesHistory.unshift({
             id: Date.now(),
             date: new Date().toLocaleString('es-CO'),
-            rawDate: getLocalDateString(),
+            rawDate: hoyISO,
             clientName: client.name,
             paymentMethod,
             items: [...state.cart],
@@ -2070,6 +2260,20 @@ function processSaleAndPrint() {
             totalVentaOriginal: totalVenta
         });
     }
+
+    // Cada abono a una deuda vieja también es dinero que entra a la caja
+    abonosAplicados.forEach(({ debt, aplicado }, idx) => {
+        state.salesHistory.unshift({
+            id: Date.now() + idx + 1,
+            date: new Date().toLocaleString('es-CO'),
+            rawDate: hoyISO,
+            clientName: client.name,
+            paymentMethod,
+            items: [{ name: `Abono a Factura (${debt.date} - ${debt.concept})`, saleType: 'unidad', units: 1, price: aplicado }],
+            total: aplicado,
+            isAbono: true
+        });
+    });
 
     saveData();
 
@@ -2086,7 +2290,9 @@ function processSaleAndPrint() {
         })),
         totalVenta,
         dineroRecibido,
-        montoFiado
+        montoFiado,
+        abonoADeudas,
+        cambioReal
     };
 
     document.getElementById('receipt-company').innerText = lastReceiptData.company;
@@ -2097,7 +2303,7 @@ function processSaleAndPrint() {
     const tbody = document.getElementById('receipt-items-body');
     tbody.innerHTML = '';
     lastReceiptData.items.forEach(item => {
-        tbody.innerHTML += `<tr><td>${item.name} (${item.desc})</td><td class="text-right font-bold">$${item.subtotal.toLocaleString('es-CO')}</td></tr>`;
+        tbody.innerHTML += `<tr><td>${esc(item.name)} (${esc(item.desc)})</td><td class="text-right font-bold">$${item.subtotal.toLocaleString('es-CO')}</td></tr>`;
     });
 
     document.getElementById('receipt-total').innerText = `$${totalVenta.toLocaleString('es-CO')}`;
@@ -2105,11 +2311,16 @@ function processSaleAndPrint() {
 
     const receiptChangeRow = document.getElementById('receipt-change-row');
     const receiptDebtRow = document.getElementById('receipt-debt-row');
+    const receiptAbonoRow = document.getElementById('receipt-abono-row');
+    if (receiptAbonoRow) {
+        receiptAbonoRow.style.display = abonoADeudas > 0 ? 'flex' : 'none';
+        document.getElementById('receipt-abono').innerText = `$${abonoADeudas.toLocaleString('es-CO')}`;
+    }
 
     if (dineroRecibido >= totalVenta) {
         receiptChangeRow.style.display = 'flex';
         receiptDebtRow.style.display = 'none';
-        document.getElementById('receipt-change').innerText = `$${(dineroRecibido - totalVenta).toLocaleString('es-CO')}`;
+        document.getElementById('receipt-change').innerText = `$${cambioReal.toLocaleString('es-CO')}`;
     } else {
         receiptChangeRow.style.display = 'none';
         receiptDebtRow.style.display = 'flex';
@@ -2150,20 +2361,20 @@ function renderSalesHistory() {
         if (exp.date === todayStr) totalGastosHoy += exp.amount;
     });
 
-    const efectivoRealEnCaja = Math.max(0, totalEfectivoHoy - totalGastosHoy);
+    const efectivoRealEnCaja = totalEfectivoHoy - totalGastosHoy;
 
     if (state.salesHistory.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ingresos registrados hoy.</td></tr>';
     } else {
         state.salesHistory.forEach(sale => {
             const itemsDesc = sale.isAbono
-                ? `<span class="font-bold text-amber-800">${sale.items[0].name}</span>`
-                : sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg de ${i.name}` : `${i.units} und de ${i.name}`).join(' | ');
+                ? `<span class="font-bold text-amber-800">${esc(sale.items[0].name)}</span>`
+                : sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg de ${esc(i.name)}` : `${i.units} und de ${esc(i.name)}`).join(' | ');
 
             tbody.innerHTML += `
                 <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
                     <td class="py-3 px-4 font-mono text-xs text-slate-500">${sale.date}</td>
-                    <td class="py-3 px-4 font-bold text-slate-800">${sale.clientName}</td>
+                    <td class="py-3 px-4 font-bold text-slate-800">${esc(sale.clientName)}</td>
                     <td class="py-3 px-4 text-slate-700 text-xs">${itemsDesc}</td>
                     <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${sale.paymentMethod === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}">${sale.paymentMethod}</span></td>
                     <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">+$${sale.total.toLocaleString('es-CO')}</td>
@@ -2186,8 +2397,14 @@ function renderMonthlyBalance() {
     let totalVentasMes = 0, totalNequiMes = 0, totalGastosMes = 0;
     let transactions = [];
 
+    const monthInput = document.getElementById('balance-month');
+    if (monthInput && !monthInput.value) monthInput.value = getLocalDateString().slice(0, 7);
+    const selectedMonth = monthInput ? monthInput.value : getLocalDateString().slice(0, 7);
+    const inMonth = (rawDate) => toISODate(rawDate).slice(0, 7) === selectedMonth;
+
     // 1. Ventas y Abonos (Módulo 2 / Módulo 1)
     state.salesHistory.forEach(s => {
+        if (!inMonth(s.rawDate || s.date)) return;
         totalVentasMes += s.total;
         if (s.paymentMethod === 'Nequi') totalNequiMes += s.total;
 
@@ -2207,6 +2424,7 @@ function renderMonthlyBalance() {
 
     // 2. Pagos a Proveedores de Leche (Módulo 4: Acopio)
     state.milkPayments.forEach(p => {
+        if (!inMonth(p.date)) return;
         totalGastosMes += p.totalPaid;
         transactions.push({
             date: p.date,
@@ -2221,6 +2439,7 @@ function renderMonthlyBalance() {
     // 3. Gastos e Inversiones (Excluyendo duplicados de pagos de leche)
     state.expenses.forEach(e => {
         if (e.name.startsWith('Pago Quincena Leche')) return;
+        if (!inMonth(e.date)) return;
 
         totalGastosMes += e.amount;
         transactions.push({
@@ -2249,7 +2468,7 @@ function renderMonthlyBalance() {
     if (detailedBody) {
         detailedBody.innerHTML = '';
         if (transactions.length === 0) {
-            detailedBody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay transacciones registradas en el mes.</td></tr>';
+            detailedBody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay transacciones en el mes seleccionado.</td></tr>';
         } else {
             transactions.forEach(tx => {
                 const isIngreso = tx.type === 'Ingreso';
@@ -2261,7 +2480,7 @@ function renderMonthlyBalance() {
                     <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
                         <td class="py-3 px-4 font-mono text-xs text-slate-500">${tx.date}</td>
                         <td class="py-3 px-4 font-bold text-slate-900 text-xs">${tx.module}</td>
-                        <td class="py-3 px-4 text-slate-700 text-xs">${tx.concept}</td>
+                        <td class="py-3 px-4 text-slate-700 text-xs">${esc(tx.concept)}</td>
                         <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${badgeClass}">${tx.type}</span></td>
                         <td class="py-3 px-4 text-right font-mono ${amountClass}">${sign}$${tx.amount.toLocaleString('es-CO')}</td>
                     </tr>`;
@@ -2308,8 +2527,10 @@ function triggerPrint() {
         ticket += `Dinero Ingresado: $${lastReceiptData.dineroRecibido.toLocaleString('es-CO')}\n`;
 
         if (lastReceiptData.dineroRecibido >= lastReceiptData.totalVenta) {
-            const cambio = lastReceiptData.dineroRecibido - lastReceiptData.totalVenta;
-            ticket += `Cambio / Vueltas: $${cambio.toLocaleString('es-CO')}\n`;
+            if (lastReceiptData.abonoADeudas > 0) {
+                ticket += `Abono a deudas:   $${lastReceiptData.abonoADeudas.toLocaleString('es-CO')}\n`;
+            }
+            ticket += `Cambio / Vueltas: $${lastReceiptData.cambioReal.toLocaleString('es-CO')}\n`;
         } else {
             ticket += `Quedo Fiado:      $${lastReceiptData.montoFiado.toLocaleString('es-CO')}\n`;
         }
@@ -2408,6 +2629,12 @@ function switchModule(modName) {
         updateYieldLivePreview();
     }
 
+    const defaultDateFields = { gastos: 'exp-date-entry', inventario: 'prod-date-entry', cuentas: 'past-debt-date' };
+    if (defaultDateFields[modName]) {
+        const dateField = document.getElementById(defaultDateFields[modName]);
+        if (dateField && !dateField.value) dateField.value = getLocalDateString();
+    }
+
     if (modName === 'contabilidad') {
         renderMonthlyBalance();
     }
@@ -2462,3 +2689,5 @@ window.promptPaySpecificDebt = promptPaySpecificDebt;
 window.deleteDebtRecord = deleteDebtRecord;
 window.renderMilkPaymentsTable = renderMilkPaymentsTable;
 window.deleteMilkPayment = deleteMilkPayment;
+window.onClientSelectChange = onClientSelectChange;
+window.renderMonthlyBalance = renderMonthlyBalance;

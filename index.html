@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lácteos Victoria - Sistema de Gestión</title>
     <!-- Tailwind CSS (respaldo dinámico) -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
     <!-- Iconos Lucide -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
     <!-- Estilos principales autónomos -->
     <link rel="stylesheet" href="./styles.css">
     <!-- Configuración de Aplicación Instalable (PWA) -->
@@ -300,7 +300,7 @@
                                 </div>
                             </div>
 
-                            <select id="client-select" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                            <select id="client-select" onchange="onClientSelectChange()" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-semibold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
                                 <option value="">-- Selecciona un comprador registrado --</option>
                             </select>
                         </div>
@@ -493,7 +493,7 @@
                                 <i data-lucide="plus-circle" class="w-5 h-5 text-emerald-600"></i>
                                 <span>Registrar Producción / Producto</span>
                             </h3>
-                            <p class="text-xs text-slate-500 mt-1">Elige si se vende por Kilos (Queso) o por Unidades (Mantequilla, Libras).</p>
+                            <p class="text-xs text-slate-500 mt-1">Elige si se vende por Kilos (Queso) o por Unidades. El precio es el precio base: en la venta puedes darle un precio distinto a cada comprador.</p>
                         </div>
                         <form id="production-form" onsubmit="addDailyProduction(event)" class="space-y-3">
                             <div>
@@ -529,7 +529,7 @@
                             </div>
 
                             <div>
-                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1" id="label-price-unit">Precio por Kilo ($)</label>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1" id="label-price-unit">Precio Base por Kilo ($)</label>
                                 <input type="number" id="prod-price-entry" required placeholder="18000" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-sm font-bold">
                             </div>
 
@@ -549,7 +549,7 @@
                                 <thead>
                                     <tr class="bg-slate-50 text-slate-700 border-b border-slate-200">
                                         <th class="py-2.5 px-4 font-bold">Producto</th>
-                                        <th class="py-2.5 px-4 font-bold">Precio Configurado</th>
+                                        <th class="py-2.5 px-4 font-bold">Precio Base</th>
                                         <th class="py-2.5 px-4 font-bold">Stock Disponible</th>
                                         <th class="py-2.5 px-4 font-bold text-right">Acciones</th>
                                     </tr>
@@ -926,9 +926,10 @@
                             </h3>
                             <p class="text-xs text-slate-500 mt-1">Resumen total de ventas, ingresos digitales (Nequi), gastos y ganancia neta.</p>
                         </div>
-                        <div id="current-month-label" class="bg-emerald-50 text-emerald-800 font-bold px-4 py-2 rounded-xl text-sm border border-emerald-200">
-                            Mes Actual
-                        </div>
+                        <label class="flex items-center gap-2 bg-emerald-50 text-emerald-800 font-bold px-4 py-2 rounded-xl text-sm border border-emerald-200">
+                            <span>Mes:</span>
+                            <input type="month" id="balance-month" onchange="renderMonthlyBalance()" class="bg-white border border-emerald-200 rounded-lg px-2 py-1 text-sm font-semibold text-emerald-900">
+                        </label>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1033,6 +1034,10 @@
                         <span>Cambio / Vueltas:</span>
                         <span id="receipt-change"></span>
                     </div>
+                    <div class="flex justify-between text-[11px] font-normal" id="receipt-abono-row" style="display:none">
+                        <span>Abonado a Deudas:</span>
+                        <span id="receipt-abono"></span>
+                    </div>
                     <div class="flex justify-between text-[11px] font-bold text-amber-700" id="receipt-debt-row">
                         <span>Quedó Fiado:</span>
                         <span id="receipt-debt"></span>
@@ -1055,7 +1060,7 @@
     </div>
 
     <!-- Script Principal -->
-    <script type="module" src="./app.js?v=5"></script>
+    <script type="module" src="./app.js?v=6"></script>
     <!-- Activación como App Instalable -->
     <script>
         if ('serviceWorker' in navigator) {
