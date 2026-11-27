@@ -87,6 +87,55 @@ const SYNC_KEYS = ['companyName', 'clients', 'products', 'productionLogs', 'sale
     'milkProviders', 'dailyMilkLogs', 'milkPayments', 'yieldLogs', 'clientDebts'];
 let lastSyncedJSON = {};
 
+// ---------- Sesión persistente: dura hasta la medianoche (hora local) ----------
+const SESSION_KEY = 'lacteos_session_v1';
+let sessionExpiresAt = 0;
+
+function endOfTodayMs() {
+    const d = new Date();
+    d.setHours(24, 0, 0, 0);
+    return d.getTime();
+}
+
+function saveSession(email, expiresAt) {
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ email, expiresAt })); } catch (_) {}
+}
+
+function clearSession() {
+    sessionExpiresAt = 0;
+    try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+}
+
+function readValidSession() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+        if (saved && saved.email && saved.expiresAt > Date.now()) return saved;
+    } catch (_) {}
+    clearSession();
+    return null;
+}
+
+async function restoreSession() {
+    const saved = readValidSession();
+    if (!saved) return;
+    try {
+        const user = await fetchRegisteredUser(saved.email);
+        if (!user) { clearSession(); return; }
+        enterAuthenticatedSession(user, saved.expiresAt);
+    } catch (err) {
+        console.warn("No se pudo restaurar la sesión:", err);
+    }
+}
+
+// Si la app estuvo en segundo plano y ya pasó la medianoche, vuelve a pedir correo y clave
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (sessionExpiresAt && Date.now() >= sessionExpiresAt) {
+        logout();
+        alert("🔒 Tu sesión del día terminó. Ingresa de nuevo con tu correo y contraseña.");
+    }
+});
+
 function snapshotSyncState() {
     SYNC_KEYS.forEach(k => { lastSyncedJSON[k] = JSON.stringify(state[k] ?? null); });
 }
@@ -305,6 +354,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pastDebtDateEl = document.getElementById('past-debt-date');
     if (pastDebtDateEl) pastDebtDateEl.value = getLocalDateString();
+
+    restoreSession();
 });
 
 function updateDateDisplay() {
@@ -409,7 +460,13 @@ function switchAuthTab(mode) {
     if (window.lucide) lucide.createIcons();
 }
 
-function enterAuthenticatedSession(accountRecord) {
+function enterAuthenticatedSession(accountRecord, restoredExpiresAt) {
+    if (restoredExpiresAt) {
+        sessionExpiresAt = restoredExpiresAt;
+    } else {
+        sessionExpiresAt = endOfTodayMs();
+        saveSession(accountRecord.email, sessionExpiresAt);
+    }
     state = createEmptyAppState();
     state.companyName = accountRecord.companyName || 'Lácteos Victoria';
     state.currentUserRole = accountRecord.role || 'admin';
@@ -589,6 +646,7 @@ function applyUserRoleInterface() {
 }
 
 function logout() {
+    clearSession();
     if (unsubscribeWorkspaceListener) {
         unsubscribeWorkspaceListener();
         unsubscribeWorkspaceListener = null;
@@ -1157,9 +1215,15 @@ function editProviderPrice(id) {
 }
 
 function deleteProvider(id) {
-    if (confirm("¿Eliminar proveedor?")) {
+    const pendingLiters = state.dailyMilkLogs
+        .filter(l => l.providerId === id && !l.paid)
+        .reduce((acc, l) => acc + (Number(l.liters) || 0), 0);
+    if (pendingLiters > 0) {
+        alert(`⚠️ Este proveedor tiene ${pendingLiters} litros sin pagar. Primero usa "Pagar" (o cierra la quincena) y luego lo puedes eliminar.`);
+        return;
+    }
+    if (confirm("¿Eliminar proveedor? Su historial de litros se conserva para los costos.")) {
         state.milkProviders = state.milkProviders.filter(p => p.id !== id);
-        state.dailyMilkLogs = state.dailyMilkLogs.filter(l => l.providerId !== id);
         saveData();
         renderMilkProvidersSelect();
         renderProvidersTable();
@@ -1940,10 +2004,16 @@ function editProductPrice(id) {
     const p = state.products.find(item => item.id === id);
     if (!p) return;
     const cur = p.saleType === 'kilos' ? p.pricePerKg : p.pricePerUnit;
-    const np = prompt(`Nuevo precio para ${p.name}:`, cur);
-    if (np !== null && !isNaN(np)) {
-        if (p.saleType === 'kilos') p.pricePerKg = parseFloat(np);
-        else p.pricePerUnit = parseFloat(np);
+    const np = prompt(`Nuevo precio base para ${p.name}:`, cur);
+    if (np === null) return;
+    const newPrice = parseNumericInput(np);
+    if (newPrice <= 0) {
+        alert("⚠️ Ingresa un precio válido mayor a 0.");
+        return;
+    }
+    {
+        if (p.saleType === 'kilos') p.pricePerKg = newPrice;
+        else p.pricePerUnit = newPrice;
         saveData();
         renderInventoryTable();
         renderProductsPOS();
@@ -2490,7 +2560,8 @@ function renderMonthlyBalance() {
 }
 
 function clearSalesHistory() {
-    if (confirm("¿Borrar historial de ingresos?")) {
+    const typed = prompt("⚠️ Esto borra TODO el historial de ingresos (de todos los meses) y cambia el balance.\n\nPara confirmar escribe BORRAR:");
+    if (typed !== null && typed.trim().toUpperCase() === 'BORRAR') {
         state.salesHistory = [];
         saveData();
         renderSalesHistory();
