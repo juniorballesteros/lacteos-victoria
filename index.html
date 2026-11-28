@@ -236,6 +236,7 @@
                                     <th class="py-2.5 px-4 font-bold text-right">Total Abonado</th>
                                     <th class="py-2.5 px-4 font-bold text-right">Saldo Pendiente Real</th>
                                     <th class="py-2.5 px-4 font-bold text-center">Estado</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Cobro</th>
                                 </tr>
                             </thead>
                             <tbody id="client-summary-table-body"></tbody>
@@ -289,7 +290,7 @@
                             </div>
 
                             <div id="new-client-form" class="hidden mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3">
-                                <h4 class="text-xs font-bold text-emerald-900 uppercase">Agregar Comprador</h4>
+                                <h4 id="new-client-title" class="text-xs font-bold text-emerald-900 uppercase">Agregar Comprador</h4>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <input type="text" id="new-client-name" placeholder="Nombre completo / Local" class="bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
                                     <div>
@@ -300,7 +301,9 @@
                                             <option value="Lenguazaque"></option>
                                         </datalist>
                                     </div>
+                                    <input type="text" id="new-client-phone" placeholder="Teléfono / WhatsApp (ej: 3001234567)" class="bg-white px-3 py-2 border border-emerald-200 rounded-lg text-sm">
                                 </div>
+                                <div id="client-prices-list" class="hidden space-y-1.5"></div>
                                 <div class="flex justify-end space-x-2">
                                     <button type="button" onclick="toggleNewClientForm()" class="px-3 py-1.5 text-xs text-slate-600 font-bold">Cancelar</button>
                                     <button type="button" onclick="saveClient()" class="px-4 py-1.5 text-xs bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700">Guardar</button>
@@ -321,14 +324,22 @@
                                     </select>
                                 </div>
                             </div>
+                            <div class="flex justify-end gap-2 mt-2">
+                                <button type="button" onclick="editClient()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg">Editar comprador / precios</button>
+                                <button type="button" onclick="deleteClient()" class="text-xs bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg">Eliminar</button>
+                            </div>
                         </div>
 
                         <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
                             <h3 class="font-bold text-slate-900 mb-4 flex items-center space-x-2">
                                 <i data-lucide="layout-grid" class="w-5 h-5 text-emerald-600"></i>
-                                <span>2. Catálogo Disponible</span>
+                                <span>2. Catálogo Disponible (Vender / Devolución)</span>
                             </h3>
                             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" id="product-grid"></div>
+                            <div class="mt-5 pt-4 border-t border-slate-200">
+                                <h4 class="text-xs font-bold text-amber-800 uppercase mb-2">↩ Devoluciones registradas</h4>
+                                <div class="overflow-x-auto"><table class="w-full text-left text-xs"><tbody id="returns-list"></tbody></table></div>
+                            </div>
                         </div>
                     </div>
 
@@ -384,10 +395,17 @@
 
             <!-- VISTA HISTORIAL DE VENTAS Y ARQUEO DE CAJA -->
             <div id="view-historial" class="hidden space-y-6">
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center gap-3">
+                    <label class="text-xs font-bold text-slate-700 uppercase">Día:</label>
+                    <input type="date" id="hist-date" onchange="renderSalesHistory()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold">
+                    <button type="button" onclick="setHistoryToday()" class="text-xs bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-3 py-2 rounded-lg">Hoy</button>
+                    <label class="flex items-center gap-2 text-xs font-bold text-slate-700"><input type="checkbox" id="hist-all" onchange="renderSalesHistory()"> Ver todos los días</label>
+                    <span id="hist-range-label" class="text-xs text-slate-500 font-semibold capitalize"></span>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Dinero Recibido Hoy (Caja)</p>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Dinero Recibido (Caja)</p>
                             <h3 class="text-2xl font-black text-emerald-800 mt-1 font-mono" id="stat-total-hoy">$0</h3>
                         </div>
                         <div class="p-3 bg-emerald-100 text-emerald-700 rounded-xl">
@@ -396,7 +414,7 @@
                     </div>
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Recibido por Nequi</p>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Nequi (neto de devoluciones)</p>
                             <h3 class="text-2xl font-black text-sky-700 mt-1 font-mono" id="stat-total-nequi">$0</h3>
                         </div>
                         <div class="p-3 bg-sky-100 text-sky-700 rounded-xl">
@@ -405,7 +423,7 @@
                     </div>
                     <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-bold text-slate-500 uppercase">Gastos / Pagos Leche Hoy</p>
+                            <p class="text-xs font-bold text-slate-500 uppercase">Gastos / Pagos Leche</p>
                             <h3 class="text-2xl font-black text-red-600 mt-1 font-mono" id="stat-total-gastos">$0</h3>
                         </div>
                         <div class="p-3 bg-red-100 text-red-700 rounded-xl">
@@ -442,6 +460,7 @@
                                     <th class="py-2.5 px-4 font-bold">Detalle / Concepto</th>
                                     <th class="py-2.5 px-4 font-bold">Método de Pago</th>
                                     <th class="py-2.5 px-4 font-bold text-right">Dinero Ingresado</th>
+                                    <th class="py-2.5 px-4 font-bold text-right">Acción</th>
                                 </tr>
                             </thead>
                             <tbody id="sales-history-table-body"></tbody>
@@ -666,8 +685,16 @@
                         <div class="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-slate-200 space-y-4">
                             <h3 class="font-bold text-slate-900 flex items-center space-x-2">
                                 <i data-lucide="history" class="w-5 h-5 text-sky-600"></i>
-                                <span>Historial Diario de Entregas (Ruta)</span>
+                                <span>Entregas por Día (Ruta)</span>
                             </h3>
+                            <div class="flex flex-wrap items-center gap-3 mb-3">
+                                <label class="text-xs font-bold text-slate-700 uppercase">Día:</label>
+                                <input type="date" id="milk-view-date" onchange="renderDailyMilkTable()" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold">
+                                <button type="button" onclick="setMilkViewToday()" class="text-xs bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold px-3 py-2 rounded-lg">Hoy</button>
+                                <span id="milk-view-label" class="text-xs text-slate-500 font-semibold capitalize"></span>
+                            </div>
+                            <div id="milk-day-summary" class="mb-4"></div>
+                            <h4 class="text-xs font-bold text-slate-600 uppercase mb-2">Detalle de entregas del día</h4>
                             <div class="overflow-x-auto">
                                 <table class="w-full text-left text-sm">
                                     <thead>
@@ -1006,6 +1033,29 @@
                 <label class="block text-xs font-bold text-slate-600 mb-1">Nombre en la Tirilla</label>
                 <input type="text" id="modal-company-name-input" class="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-semibold">
             </div>
+            <div class="border-t border-slate-200 pt-3 space-y-2">
+                <p class="text-xs font-bold text-slate-600 uppercase">Exportar a Excel (CSV)</p>
+                <div class="flex gap-2">
+                    <select id="export-kind" class="flex-1 border border-slate-300 rounded-xl p-2 text-sm font-semibold">
+                        <option value="ventas">Ventas y abonos</option>
+                        <option value="deudas">Cuentas por cobrar</option>
+                        <option value="gastos">Gastos</option>
+                        <option value="leche">Acopio de leche</option>
+                        <option value="pagos">Pagos a proveedores</option>
+                        <option value="rendimientos">Rendimientos</option>
+                        <option value="devoluciones">Devoluciones</option>
+                        <option value="inventario">Inventario</option>
+                        <option value="clientes">Compradores</option>
+                    </select>
+                    <button type="button" onclick="exportCsv()" class="px-3 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl">Descargar</button>
+                </div>
+                <p class="text-xs font-bold text-slate-600 uppercase pt-1">Copia de seguridad</p>
+                <div class="flex gap-2">
+                    <button type="button" onclick="exportBackup()" class="flex-1 px-3 py-2 text-sm bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl">Guardar copia</button>
+                    <button type="button" onclick="document.getElementById('backup-file-input').click()" class="flex-1 px-3 py-2 text-sm bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-xl">Restaurar copia</button>
+                    <input type="file" id="backup-file-input" accept=".json,application/json" class="hidden" onchange="importBackupFile(this)">
+                </div>
+            </div>
             <div class="flex justify-end space-x-2">
                 <button type="button" onclick="closeConfigModal()" class="px-4 py-2 text-sm text-slate-600 font-bold">Cancelar</button>
                 <button type="button" onclick="saveCompanyName()" class="px-4 py-2 text-sm bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700">Guardar</button>
@@ -1078,7 +1128,7 @@
     </div>
 
     <!-- Script Principal -->
-    <script type="module" src="./app.js?v=6"></script>
+    <script type="module" src="./app.js?v=7"></script>
     <!-- Activación como App Instalable -->
     <script>
         if ('serviceWorker' in navigator) {

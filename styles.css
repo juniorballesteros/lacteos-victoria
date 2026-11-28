@@ -400,3 +400,15 @@ table tbody tr:hover {
         background: #ffffff !important;
     }
 }
+
+/* Botón de devolución en las tarjetas del POS */
+#product-grid button.btn-return {
+    background-color: #fffbeb;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+    margin-top: 0.5rem;
+}
+
+#product-grid button.btn-return:hover {
+    background-color: #fef3c7;
+}

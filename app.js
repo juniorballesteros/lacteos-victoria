@@ -85,7 +85,7 @@ let currentWorkspaceKey = null;
 let unsubscribeWorkspaceListener = null;
 
 const SYNC_KEYS = ['companyName', 'clients', 'products', 'productionLogs', 'salesHistory', 'expenses',
-    'milkProviders', 'dailyMilkLogs', 'milkPayments', 'yieldLogs', 'clientDebts'];
+    'milkProviders', 'dailyMilkLogs', 'milkPayments', 'yieldLogs', 'clientDebts', 'returnsLog'];
 let lastSyncedJSON = {};
 
 // ---------- Sesión persistente: dura hasta la medianoche (hora local) ----------
@@ -156,6 +156,7 @@ function createEmptyAppState() {
         milkPayments: [],
         yieldLogs: [],
         clientDebts: [],
+        returnsLog: [],
         cart: []
     };
 }
@@ -268,6 +269,7 @@ function refreshAllVisibleTables() {
         renderYieldTable();
         renderMonthlyBalance();
         renderClientAccountsTable();
+        renderReturnsList();
         const yieldForm = document.getElementById('yield-form');
         if (!(yieldForm && yieldForm.contains(document.activeElement))) {
             onYieldDateChange();
@@ -305,6 +307,7 @@ function subscribeToWorkspace(workspaceKey, accountRecord) {
             state.dailyMilkLogs = parsed.dailyMilkLogs || [];
             state.milkPayments = parsed.milkPayments || [];
             state.yieldLogs = parsed.yieldLogs || [];
+            state.returnsLog = parsed.returnsLog || [];
             state.clientDebts = (parsed.clientDebts || []).map(d => {
                 const iso = toISODate(d.date);
                 return iso && iso !== d.date ? { ...d, date: iso } : d;
@@ -665,17 +668,92 @@ function logout() {
     document.getElementById('auth-screen').classList.remove('hidden');
 }
 
+let editingClientId = null;
+
+function resetClientForm() {
+    editingClientId = null;
+    const title = document.getElementById('new-client-title');
+    if (title) title.innerText = 'Agregar Comprador';
+    ['new-client-name', 'new-client-phone', 'new-client-zone'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const form = document.getElementById('new-client-form');
+    if (form) form.classList.add('hidden');
+    renderClientPricesList(null);
+}
+
 function toggleNewClientForm() {
     const form = document.getElementById('new-client-form');
     if (!form) return;
-    form.classList.toggle('hidden');
-    if (!form.classList.contains('hidden')) {
-        const zoneFilter = document.getElementById('client-zone-filter');
-        const zoneInput = document.getElementById('new-client-zone');
-        if (zoneFilter && zoneInput && zoneFilter.value && zoneFilter.value !== '__sin_zona__') {
-            zoneInput.value = zoneFilter.value;
-        }
+    if (!form.classList.contains('hidden')) { resetClientForm(); return; }
+    editingClientId = null;
+    const title = document.getElementById('new-client-title');
+    if (title) title.innerText = 'Agregar Comprador';
+    renderClientPricesList(null);
+    form.classList.remove('hidden');
+    const zoneFilter = document.getElementById('client-zone-filter');
+    const zoneInput = document.getElementById('new-client-zone');
+    if (zoneFilter && zoneInput && zoneFilter.value && zoneFilter.value !== '__sin_zona__') {
+        zoneInput.value = zoneFilter.value;
     }
+}
+
+function renderClientPricesList(client) {
+    const box = document.getElementById('client-prices-list');
+    if (!box) return;
+    if (!client) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+    const rows = Object.keys(client.prices || {}).map(key => {
+        const p = state.products.find(x => 'p_' + x.id === key);
+        return p ? `<div class="flex items-center justify-between text-xs bg-white border border-emerald-100 rounded-lg px-3 py-1.5">
+            <span><b>${esc(p.name)}</b>: $${Number(client.prices[key]).toLocaleString('es-CO')} <span class="text-slate-400">(base $${getBasePrice(p).toLocaleString('es-CO')})</span></span>
+            <button type="button" onclick="removeClientPrice(${client.id}, ${p.id})" class="text-red-600 font-bold">Quitar</button></div>` : '';
+    }).join('');
+    box.innerHTML = `<p class="text-xs font-bold text-emerald-900 uppercase">Precios especiales de este comprador</p>` +
+        (rows || '<p class="text-[11px] text-slate-500">No tiene precios especiales guardados: paga el precio base.</p>');
+    box.classList.remove('hidden');
+}
+
+function removeClientPrice(clientId, productId) {
+    const client = state.clients.find(c => c.id === clientId);
+    if (!client || !client.prices) return;
+    delete client.prices['p_' + productId];
+    saveData();
+    renderClientPricesList(client);
+    renderProductsPOS();
+}
+
+function editClient() {
+    const client = getSelectedClient();
+    if (!client) { alert("⚠️ Primero selecciona un comprador en la lista."); return; }
+    editingClientId = client.id;
+    document.getElementById('new-client-name').value = client.name;
+    const phoneEl = document.getElementById('new-client-phone');
+    if (phoneEl) phoneEl.value = client.phone || '';
+    const zoneEl = document.getElementById('new-client-zone');
+    if (zoneEl) zoneEl.value = normalizeZoneText(client.zone);
+    const title = document.getElementById('new-client-title');
+    if (title) title.innerText = 'Editar Comprador';
+    renderClientPricesList(client);
+    document.getElementById('new-client-form').classList.remove('hidden');
+}
+
+function deleteClient() {
+    const client = getSelectedClient();
+    if (!client) { alert("⚠️ Primero selecciona un comprador en la lista."); return; }
+    const saldo = state.clientDebts
+        .filter(d => d.clientId === client.id)
+        .reduce((acc, d) => acc + Math.max(0, d.totalAmount - d.paidAmount), 0);
+    if (saldo > 0) {
+        alert(`⚠️ ${client.name} todavía debe $${saldo.toLocaleString('es-CO')}. Cobra o ajusta esa deuda antes de eliminarlo.`);
+        return;
+    }
+    if (!confirm(`¿Eliminar a ${client.name}? Sus ventas y facturas pagadas se conservan en el historial.`)) return;
+    state.clients = state.clients.filter(c => c.id !== client.id);
+    saveData();
+    renderClientSelect();
+    renderPastDebtClientSelect();
+    onClientSelectChange();
 }
 
 function normalizeZoneText(raw) {
@@ -726,30 +804,50 @@ function updateZoneSuggestionsAndFilter() {
 
 function saveClient() {
     const name = document.getElementById('new-client-name').value.trim();
-    const zoneInput = document.getElementById('new-client-zone');
-    const zone = normalizeZoneText(zoneInput ? zoneInput.value : '');
-    if (!name) {
-        alert("⚠️ Escribe el nombre del comprador o local.");
-        return;
+    const phoneEl = document.getElementById('new-client-phone');
+    const phone = phoneEl ? phoneEl.value.trim() : '';
+    const zoneEl = document.getElementById('new-client-zone');
+    const zone = normalizeZoneText(zoneEl ? zoneEl.value : '');
+    if (!name) { alert("⚠️ Escribe el nombre del comprador o local."); return; }
+
+    const duplicate = state.clients.find(c => c.id !== editingClientId && c.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate && !confirm(`Ya existe un comprador llamado "${duplicate.name}". ¿Crear otro igual?`)) return;
+
+    let target;
+    if (editingClientId) {
+        target = state.clients.find(c => c.id === editingClientId);
+        if (!target) { resetClientForm(); return; }
+        const oldName = target.name;
+        target.name = name;
+        target.phone = phone;
+        target.zone = zone;
+        if (oldName !== name) {
+            state.clientDebts.forEach(d => { if (d.clientId === target.id) d.clientName = name; });
+            const oldNameShared = state.clients.some(c => c.id !== target.id && c.name === oldName);
+            if (!oldNameShared) state.salesHistory.forEach(s => { if (s.clientName === oldName) s.clientName = name; });
+        }
+    } else {
+        target = { id: Date.now(), name, phone, zone };
+        state.clients.push(target);
     }
 
-    const newClient = { id: Date.now(), name, zone };
-    state.clients.push(newClient);
     saveData();
 
+    // Si el filtro de zona actual esconde a este comprador, se ajusta el filtro para que se vea
+    updateZoneSuggestionsAndFilter();
     const filterSelect = document.getElementById('client-zone-filter');
-    if (filterSelect && zone && filterSelect.value && filterSelect.value.toLowerCase() !== zone.toLowerCase()) {
-        filterSelect.value = zone;
+    if (filterSelect && filterSelect.value && filterSelect.value !== '__sin_zona__'
+        && filterSelect.value.toLowerCase() !== zone.toLowerCase()) {
+        filterSelect.value = zone || '';
     }
-
     renderClientSelect();
     renderPastDebtClientSelect();
-
-    document.getElementById('client-select').value = newClient.id;
-    document.getElementById('new-client-name').value = '';
-    if (zoneInput) zoneInput.value = '';
-    toggleNewClientForm();
+    document.getElementById('client-select').value = target.id;
     onClientSelectChange();
+    renderClientAccountsTable();
+    renderSalesHistory();
+    renderMonthlyBalance();
+    resetClientForm();
 }
 
 function rebuildSelect(select, html) {
@@ -863,7 +961,7 @@ function renderClientAccountsTable() {
     let debtorsSet = new Set();
 
     if (state.clientDebts.length === 0) {
-        summaryTbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay cuentas por cobrar registradas. ¡Todos al día!</td></tr>';
+        summaryTbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-slate-400 font-medium">No hay cuentas por cobrar registradas. ¡Todos al día!</td></tr>';
         detailedTbody.innerHTML = '<tr><td colspan="8" class="text-center py-6 text-slate-400 font-medium">No hay facturas registradas.</td></tr>';
         document.getElementById('stat-total-deudas').innerText = '$0';
         document.getElementById('stat-clients-debtors').innerText = '0';
@@ -875,6 +973,7 @@ function renderClientAccountsTable() {
         const saldo = Math.max(0, debt.totalAmount - debt.paidAmount);
         if (!clientSummaryMap[debt.clientId]) {
             clientSummaryMap[debt.clientId] = {
+                clientId: debt.clientId,
                 clientName: debt.clientName,
                 totalFiado: 0,
                 totalAbonado: 0,
@@ -904,6 +1003,7 @@ function renderClientAccountsTable() {
                 <td class="py-3 px-4 text-right font-mono text-emerald-700">$${summary.totalAbonado.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-right font-mono font-black text-amber-800">$${summary.saldoPendiente.toLocaleString('es-CO')}</td>
                 <td class="py-3 px-4 text-center">${statusBadge}</td>
+                <td class="py-3 px-4 text-right">${summary.saldoPendiente > 0 ? `<button onclick="sendWhatsAppReminder(${summary.clientId})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg whitespace-nowrap">Cobrar por WhatsApp</button>` : ''}</td>
             </tr>`;
     });
 
@@ -1028,7 +1128,9 @@ function promptPaySpecificDebt(debtId) {
         return;
     }
 
-    const metP = prompt("Método de ingreso del abono (Efectivo / Nequi):", "Efectivo") || "Efectivo";
+    const metRaw = prompt("Método de ingreso del abono (Efectivo / Nequi):", "Efectivo");
+    if (metRaw === null) return;
+    const metP = /nequi/i.test(metRaw) ? 'Nequi' : 'Efectivo';
 
     debt.paidAmount = Math.min(debt.totalAmount, debt.paidAmount + abono);
     if (debt.paidAmount >= debt.totalAmount) {
@@ -1043,7 +1145,8 @@ function promptPaySpecificDebt(debtId) {
         paymentMethod: metP,
         items: [{ name: `Abono a Factura (${debt.date} - ${debt.concept})`, saleType: 'unidad', units: 1, price: abono }],
         total: abono,
-        isAbono: true
+        isAbono: true,
+        debtId: debt.id
     });
 
     saveData();
@@ -1053,7 +1156,7 @@ function promptPaySpecificDebt(debtId) {
 }
 
 function deleteDebtRecord(id) {
-    if (confirm("¿Estás seguro de eliminar este registro de cuenta por cobrar?")) {
+    if (confirm("¿Eliminar este registro de cuenta por cobrar?\n\nSi vino de una venta y quieres devolver el stock, usa 'Anular' en Historial de Ventas / Caja.")) {
         expandedDebtIds.delete(id);
         state.clientDebts = state.clientDebts.filter(d => d.id !== id);
         saveData();
@@ -1105,6 +1208,11 @@ function renderExpensesTable() {
 }
 
 function deleteExpense(id) {
+    const target = state.expenses.find(exp => exp.id === id);
+    if (target && target.returnId) {
+        alert("↩ Este gasto es una devolución. Para deshacerla usa el botón 'Anular' en 'Devoluciones registradas' (módulo de Ventas), así también se corrige el stock.");
+        return;
+    }
     if (confirm("¿Eliminar gasto?")) {
         state.expenses = state.expenses.filter(exp => exp.id !== id);
         saveData();
@@ -1348,45 +1456,157 @@ function addDailyMilk(e) {
     renderProvidersTable();
 }
 
+function getMilkViewDate() {
+    const el = document.getElementById('milk-view-date');
+    if (el && !el.value) el.value = getLocalDateString();
+    return el ? el.value : getLocalDateString();
+}
+
+function setMilkViewToday() {
+    const el = document.getElementById('milk-view-date');
+    if (el) el.value = getLocalDateString();
+    renderDailyMilkTable();
+}
+
 function renderDailyMilkTable() {
     const tbody = document.getElementById('daily-milk-table-body');
     if (!tbody) return;
-    tbody.innerHTML = '';
-
+    const isAdmin = state.currentUserRole !== 'conductor';
     const todayStr = getLocalDateString();
-    let totalLitersToday = 0, totalCostToday = 0;
+    const day = getMilkViewDate();
+    const money = n => `$${Math.round(n).toLocaleString('es-CO')}`;
 
-    if (state.dailyMilkLogs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-slate-400 font-medium">No hay entregas registradas.</td></tr>';
-    } else {
-        state.dailyMilkLogs.forEach(log => {
-            if (log.date === todayStr) {
-                totalLitersToday += log.liters;
-                totalCostToday += (log.liters * log.pricePerLiter);
-            }
-            tbody.innerHTML += `
-                <tr class="border-b border-sky-50">
-                    <td class="py-3 px-4 font-mono text-xs text-slate-500">${log.date}</td>
-                    <td class="py-3 px-4 font-bold text-slate-800">${esc(log.providerName)} <span class="text-[10px] text-slate-400">(${esc(log.registeredBy)})</span></td>
-                    <td class="py-3 px-4 font-mono text-sky-800 font-bold">${log.liters} Litros${log.paid ? ' <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-sans">Liquidado</span>' : ''}</td>
-                    <td class="py-3 px-4 text-right"><button onclick="deleteDailyMilk(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button></td>
-                </tr>`;
-        });
-    }
-
+    // Tarjetas superiores: siempre son de HOY
+    let litersToday = 0, costToday = 0;
+    state.dailyMilkLogs.forEach(l => {
+        if (toISODate(l.date) === todayStr) { litersToday += l.liters; costToday += l.liters * l.pricePerLiter; }
+    });
     const statMilkToday = document.getElementById('stat-milk-today');
     const statMilkCost = document.getElementById('stat-milk-cost');
-    if (statMilkToday) statMilkToday.innerText = `${totalLitersToday} L`;
-    if (statMilkCost) statMilkCost.innerText = `$${totalCostToday.toLocaleString('es-CO')}`;
+    if (statMilkToday) statMilkToday.innerText = `${litersToday} L`;
+    if (statMilkCost) statMilkCost.innerText = money(costToday);
+
+    const label = document.getElementById('milk-view-label');
+    if (label) {
+        const [y, m, d] = day.split('-').map(Number);
+        label.innerText = (day === todayStr ? 'Hoy · ' : '') +
+            new Date(y, m - 1, d).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    const dayLogs = state.dailyMilkLogs.filter(l => toISODate(l.date) === day);
+
+    // Lo que se debe a cada proveedor: litros SIN PAGAR de todos los días (no depende del día elegido)
+    const pendingLiters = {};
+    state.dailyMilkLogs.forEach(l => { if (!l.paid) pendingLiters[l.providerId] = (pendingLiters[l.providerId] || 0) + l.liters; });
+
+    const rows = [];
+    const seen = new Set();
+    state.milkProviders.forEach(p => { seen.add(p.id); rows.push({ id: p.id, name: p.name, price: p.pricePerLiter }); });
+    dayLogs.forEach(l => { if (!seen.has(l.providerId)) { seen.add(l.providerId); rows.push({ id: l.providerId, name: l.providerName, price: l.pricePerLiter }); } });
+
+    let totalDayLiters = 0, totalDayValue = 0, totalPendingValue = 0;
+    const summaryRows = rows.map(r => {
+        const logs = dayLogs.filter(l => l.providerId === r.id);
+        const dl = logs.reduce((a, l) => a + l.liters, 0);
+        const dv = logs.reduce((a, l) => a + l.liters * l.pricePerLiter, 0);
+        const pl = pendingLiters[r.id] || 0;
+        const pv = pl * r.price;
+        totalDayLiters += dl; totalDayValue += dv; totalPendingValue += pv;
+        return `<tr class="border-b border-sky-50">
+            <td class="py-2.5 px-4 font-bold text-slate-800">${esc(r.name)}</td>
+            <td class="py-2.5 px-4 font-mono font-bold ${dl > 0 ? 'text-sky-800' : 'text-slate-400'}">${dl > 0 ? dl + ' L' : '—'}</td>
+            ${isAdmin ? `<td class="py-2.5 px-4 font-mono text-slate-700">${dl > 0 ? money(dv) : '—'}</td>
+            <td class="py-2.5 px-4 text-right font-mono ${pl > 0 ? 'font-black text-emerald-700' : 'text-slate-400'}">${pl > 0 ? pl + ' L · ' + money(pv) : '—'}</td>` : ''}
+        </tr>`;
+    }).join('');
+
+    const summaryBox = document.getElementById('milk-day-summary');
+    if (summaryBox) {
+        summaryBox.innerHTML = rows.length === 0
+            ? '<p class="text-center text-slate-400 text-sm py-4">Aún no hay proveedores registrados.</p>'
+            : `<div class="overflow-x-auto"><table class="w-full text-left text-sm">
+                <thead><tr class="bg-sky-50 text-sky-900 border-b border-sky-100">
+                    <th class="py-2 px-4 font-bold">Proveedor</th>
+                    <th class="py-2 px-4 font-bold">Litros del día</th>
+                    ${isAdmin ? '<th class="py-2 px-4 font-bold">Valor del día</th><th class="py-2 px-4 font-bold text-right">Pendiente por pagar (todos los días)</th>' : ''}
+                </tr></thead>
+                <tbody>${summaryRows}</tbody>
+                <tfoot><tr class="bg-slate-50 font-black text-slate-900">
+                    <td class="py-2.5 px-4">Total del día</td>
+                    <td class="py-2.5 px-4 font-mono text-sky-800">${totalDayLiters} L</td>
+                    ${isAdmin ? `<td class="py-2.5 px-4 font-mono">${money(totalDayValue)}</td>
+                    <td class="py-2.5 px-4 text-right font-mono text-emerald-700">${money(totalPendingValue)}</td>` : ''}
+                </tr></tfoot></table></div>` +
+              (isAdmin ? `<p class="text-xs text-slate-500 mt-2">💰 Lo que se les debe a todos los proveedores (litros sin pagar de todos los días): <b class="text-emerald-700">${money(totalPendingValue)}</b></p>` : '');
+    }
+
+    tbody.innerHTML = '';
+    if (dayLogs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-slate-400 font-medium">No hay entregas registradas este día.</td></tr>';
+        return;
+    }
+    dayLogs.forEach(log => {
+        const edited = log.originalLiters !== undefined && log.originalLiters !== log.liters
+            ? ` <span title="${esc(log.editNote || 'Sin motivo')}" class="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-sans cursor-help">Editado (antes ${log.originalLiters} L)</span>` : '';
+        const paid = log.paid ? ' <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-sans">Liquidado</span>' : '';
+        const actions = log.paid ? '' :
+            (isAdmin ? `<button onclick="editDailyMilk(${log.id})" class="text-xs bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold px-2 py-1 rounded-lg">Editar</button> ` : '') +
+            `<button onclick="deleteDailyMilk(${log.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Eliminar</button>`;
+        tbody.innerHTML += `
+            <tr class="border-b border-sky-50">
+                <td class="py-3 px-4 font-mono text-xs text-slate-500">${esc(log.date)}</td>
+                <td class="py-3 px-4 font-bold text-slate-800">${esc(log.providerName)} <span class="text-[10px] text-slate-400">(${esc(log.registeredBy)})</span></td>
+                <td class="py-3 px-4 font-mono text-sky-800 font-bold">${log.liters} Litros${edited}${paid}</td>
+                <td class="py-3 px-4 text-right whitespace-nowrap">${actions}</td>
+            </tr>`;
+    });
 }
 
 function deleteDailyMilk(id) {
+    const log = state.dailyMilkLogs.find(l => l.id === id);
+    if (!log) return;
+    if (log.paid) {
+        alert("⚠️ Este registro ya fue liquidado (pagado) y no se puede eliminar.");
+        return;
+    }
     if (confirm("¿Eliminar registro?")) {
         state.dailyMilkLogs = state.dailyMilkLogs.filter(l => l.id !== id);
         saveData();
         renderDailyMilkTable();
         renderProvidersTable();
     }
+}
+
+function editDailyMilk(id) {
+    if (state.currentUserRole === 'conductor') {
+        alert("⚠️ Solo el dueño puede corregir los litros.");
+        return;
+    }
+    const log = state.dailyMilkLogs.find(l => l.id === id);
+    if (!log) return;
+    if (log.paid) {
+        alert("⚠️ Este registro ya fue liquidado (pagado) y no se puede modificar.");
+        return;
+    }
+    const input = prompt(`${log.providerName} · ${log.date}\nLitros registrados: ${log.liters}\n\nEscribe los litros CORRECTOS.\n(Ej: si entraron ${log.liters} y vendiste 20 por otro lado, escribe ${Math.max(0, log.liters - 20)})`, log.liters);
+    if (input === null) return;
+    const liters = parseFloat(String(input).trim().replace(',', '.'));
+    if (!(liters > 0)) {
+        alert("⚠️ Los litros deben ser mayores a 0. Si no entró leche ese día, elimina el registro.");
+        return;
+    }
+    if (liters === log.liters) return;
+    const note = prompt("Motivo del cambio (opcional). Ej: vendí 20 L por otro lado:", "");
+    if (note === null) return;
+
+    if (log.originalLiters === undefined) log.originalLiters = log.liters;
+    log.liters = liters;
+    log.editNote = note.trim();
+    log.editedAt = getLocalDateString();
+    log.editedBy = state.currentUserEmail || '';
+    saveData();
+    renderDailyMilkTable();
+    renderProvidersTable();
 }
 
 function resetQuincena() {
@@ -2147,6 +2367,7 @@ function renderProductsPOS() {
                 <button onclick="promptSellProduct(${p.id})" ${!isAvailable ? 'disabled' : ''} class="mt-3 w-full ${isAvailable ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-200 text-slate-400 cursor-not-allowed'} font-bold py-2 rounded-lg text-xs">
                     ${isAvailable ? 'Vender' : 'Sin Stock'}
                 </button>
+                <button onclick="promptReturnProduct(${p.id})" class="btn-return w-full font-bold py-2 rounded-lg text-xs">↩ Devolución</button>
             </div>`;
     });
     if (window.lucide) lucide.createIcons();
@@ -2358,6 +2579,7 @@ function processSaleAndPrint() {
     let cambioReal = 0;
     const abonosAplicados = [];
     const hoyISO = getLocalDateString();
+    const txId = Date.now();
 
     if (dineroRecibido < totalVenta) {
         montoFiado = totalVenta - dineroRecibido;
@@ -2368,7 +2590,8 @@ function processSaleAndPrint() {
             : `${i.units} und ${i.name}`).join(', ');
 
         state.clientDebts.push({
-            id: Date.now(),
+            id: txId,
+            txId,
             clientId: client.id,
             clientName: client.name,
             date: hoyISO,
@@ -2402,23 +2625,29 @@ function processSaleAndPrint() {
         cambioReal = excedente;
     }
 
-    if (dineroEntraCaja > 0) {
-        state.salesHistory.unshift({
-            id: Date.now(),
-            date: new Date().toLocaleString('es-CO'),
-            rawDate: hoyISO,
-            clientName: client.name,
-            paymentMethod,
-            items: [...state.cart],
-            total: dineroEntraCaja,
-            totalVentaOriginal: totalVenta
-        });
-    }
+    state.salesHistory.unshift({
+        id: txId,
+        txId,
+        date: new Date().toLocaleString('es-CO'),
+        rawDate: hoyISO,
+        clientName: client.name,
+        paymentMethod,
+        items: [...state.cart],
+        total: dineroEntraCaja,
+        totalVentaOriginal: totalVenta,
+        received: dineroRecibido,
+        fiado: montoFiado,
+        abonoADeudas,
+        cambioReal,
+        debtId: montoFiado > 0 ? txId : null
+    });
 
     // Cada abono a una deuda vieja también es dinero que entra a la caja
     abonosAplicados.forEach(({ debt, aplicado }, idx) => {
         state.salesHistory.unshift({
-            id: Date.now() + idx + 1,
+            id: txId + idx + 1,
+            txId,
+            debtId: debt.id,
             date: new Date().toLocaleString('es-CO'),
             rawDate: hoyISO,
             clientName: client.name,
@@ -2449,40 +2678,7 @@ function processSaleAndPrint() {
         cambioReal
     };
 
-    document.getElementById('receipt-company').innerText = lastReceiptData.company;
-    document.getElementById('receipt-date').innerText = fechaActual;
-    document.getElementById('receipt-client').innerText = client.name;
-    document.getElementById('receipt-payment-method').innerText = paymentMethod;
-
-    const tbody = document.getElementById('receipt-items-body');
-    tbody.innerHTML = '';
-    lastReceiptData.items.forEach(item => {
-        tbody.innerHTML += `<tr><td>${esc(item.name)} (${esc(item.desc)})</td><td class="text-right font-bold">$${item.subtotal.toLocaleString('es-CO')}</td></tr>`;
-    });
-
-    document.getElementById('receipt-total').innerText = `$${totalVenta.toLocaleString('es-CO')}`;
-    document.getElementById('receipt-received').innerText = `$${dineroRecibido.toLocaleString('es-CO')}`;
-
-    const receiptChangeRow = document.getElementById('receipt-change-row');
-    const receiptDebtRow = document.getElementById('receipt-debt-row');
-    const receiptAbonoRow = document.getElementById('receipt-abono-row');
-    if (receiptAbonoRow) {
-        receiptAbonoRow.style.display = abonoADeudas > 0 ? 'flex' : 'none';
-        document.getElementById('receipt-abono').innerText = `$${abonoADeudas.toLocaleString('es-CO')}`;
-    }
-
-    if (dineroRecibido >= totalVenta) {
-        receiptChangeRow.style.display = 'flex';
-        receiptDebtRow.style.display = 'none';
-        document.getElementById('receipt-change').innerText = `$${cambioReal.toLocaleString('es-CO')}`;
-    } else {
-        receiptChangeRow.style.display = 'none';
-        receiptDebtRow.style.display = 'flex';
-        document.getElementById('receipt-debt').innerText = `$${montoFiado.toLocaleString('es-CO')}`;
-    }
-
-    document.getElementById('modal-receipt').classList.remove('hidden');
-    document.getElementById('modal-receipt').classList.add('flex');
+    renderReceiptModal(lastReceiptData);
 
     renderProductsPOS();
     renderInventoryTable();
@@ -2501,50 +2697,63 @@ function renderSalesHistory() {
     tbody.innerHTML = '';
 
     const todayStr = getLocalDateString();
-    let totalIngresadoHoy = 0, totalNequiHoy = 0, totalEfectivoHoy = 0, totalGastosHoy = 0;
+    const dateInput = document.getElementById('hist-date');
+    const allBox = document.getElementById('hist-all');
+    if (dateInput && !dateInput.value) dateInput.value = todayStr;
+    const showAll = !!(allBox && allBox.checked);
+    const selectedDate = (dateInput && dateInput.value) || todayStr;
+    const matchesDay = (raw) => showAll || toISODate(raw) === selectedDate;
 
-    state.salesHistory.forEach(sale => {
-        if ((sale.rawDate || sale.date) === todayStr) {
-            totalIngresadoHoy += sale.total;
-            if (sale.paymentMethod === 'Nequi') totalNequiHoy += sale.total;
-            else if (sale.paymentMethod === 'Efectivo') totalEfectivoHoy += sale.total;
-        }
+    const rangeLabel = document.getElementById('hist-range-label');
+    if (rangeLabel) {
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        rangeLabel.innerText = showAll ? 'Mostrando: todos los días'
+            : 'Mostrando: ' + new Date(y, m - 1, d).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    let totalIngresado = 0, totalNequi = 0, totalEfectivo = 0, totalGastos = 0;
+    const visible = state.salesHistory.filter(sale => matchesDay(sale.rawDate || sale.date));
+    visible.forEach(sale => {
+        totalIngresado += sale.total;
+        if (sale.paymentMethod === 'Nequi') totalNequi += sale.total;
+        else if (sale.paymentMethod === 'Efectivo') totalEfectivo += sale.total;
     });
-
+    let gastosNequi = 0;
     state.expenses.forEach(exp => {
-        if (exp.date === todayStr) totalGastosHoy += exp.amount;
+        if (!matchesDay(exp.date)) return;
+        totalGastos += exp.amount;
+        if (exp.method === 'Nequi') gastosNequi += exp.amount;
     });
 
-    const efectivoRealEnCaja = totalEfectivoHoy - totalGastosHoy;
-
-    if (state.salesHistory.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-6 text-slate-400 font-medium">No hay ingresos registrados hoy.</td></tr>';
+    if (visible.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-slate-400 font-medium">No hay ingresos en este día.</td></tr>';
     } else {
-        state.salesHistory.forEach(sale => {
+        visible.forEach(sale => {
             const itemsDesc = sale.isAbono
                 ? `<span class="font-bold text-amber-800">${esc(sale.items[0].name)}</span>`
                 : sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg de ${esc(i.name)}` : `${i.units} und de ${esc(i.name)}`).join(' | ');
+            const fiadoBadge = sale.fiado > 0
+                ? `<br><span class="text-[10px] font-sans font-bold text-amber-700">Fiado $${sale.fiado.toLocaleString('es-CO')}</span>` : '';
+            const receiptBtn = sale.isAbono ? '' :
+                `<button onclick="reprintReceipt(${sale.id})" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1 rounded-lg">Tirilla</button>`;
 
             tbody.innerHTML += `
                 <tr class="border-b border-emerald-50 hover:bg-emerald-50/20">
-                    <td class="py-3 px-4 font-mono text-xs text-slate-500">${sale.date}</td>
+                    <td class="py-3 px-4 font-mono text-xs text-slate-500">${esc(sale.date)}</td>
                     <td class="py-3 px-4 font-bold text-slate-800">${esc(sale.clientName)}</td>
                     <td class="py-3 px-4 text-slate-700 text-xs">${itemsDesc}</td>
-                    <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${sale.paymentMethod === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}">${sale.paymentMethod}</span></td>
-                    <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">+$${sale.total.toLocaleString('es-CO')}</td>
+                    <td class="py-3 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-bold ${sale.paymentMethod === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : 'bg-sky-100 text-sky-800'}">${esc(sale.paymentMethod)}</span></td>
+                    <td class="py-3 px-4 text-right font-mono font-black text-emerald-700">+$${sale.total.toLocaleString('es-CO')}${fiadoBadge}</td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap space-x-1">${receiptBtn}<button onclick="annulSale(${sale.id})" class="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Anular</button></td>
                 </tr>`;
         });
     }
 
-    const statTotalHoy = document.getElementById('stat-total-hoy');
-    const statTotalNequi = document.getElementById('stat-total-nequi');
-    const statTotalGastos = document.getElementById('stat-total-gastos');
-    const statEfectivoCaja = document.getElementById('stat-efectivo-caja');
-
-    if (statTotalHoy) statTotalHoy.innerText = `$${totalIngresadoHoy.toLocaleString('es-CO')}`;
-    if (statTotalNequi) statTotalNequi.innerText = `$${totalNequiHoy.toLocaleString('es-CO')}`;
-    if (statTotalGastos) statTotalGastos.innerText = `-$${totalGastosHoy.toLocaleString('es-CO')}`;
-    if (statEfectivoCaja) statEfectivoCaja.innerText = `$${efectivoRealEnCaja.toLocaleString('es-CO')}`;
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+    setText('stat-total-hoy', `$${totalIngresado.toLocaleString('es-CO')}`);
+    setText('stat-total-nequi', `$${(totalNequi - gastosNequi).toLocaleString('es-CO')}`);
+    setText('stat-total-gastos', `-$${totalGastos.toLocaleString('es-CO')}`);
+    setText('stat-efectivo-caja', `$${(totalEfectivo - (totalGastos - gastosNequi)).toLocaleString('es-CO')}`);
 }
 
 function renderMonthlyBalance() {
@@ -2559,6 +2768,7 @@ function renderMonthlyBalance() {
     // 1. Ventas y Abonos (Módulo 2 / Módulo 1)
     state.salesHistory.forEach(s => {
         if (!inMonth(s.rawDate || s.date)) return;
+        if (!(s.total > 0)) return;
         totalVentasMes += s.total;
         if (s.paymentMethod === 'Nequi') totalNequiMes += s.total;
 
@@ -2845,5 +3055,452 @@ window.promptPaySpecificDebt = promptPaySpecificDebt;
 window.deleteDebtRecord = deleteDebtRecord;
 window.renderMilkPaymentsTable = renderMilkPaymentsTable;
 window.deleteMilkPayment = deleteMilkPayment;
+window.editDailyMilk = editDailyMilk;
+window.setMilkViewToday = setMilkViewToday;
+window.renderDailyMilkTable = renderDailyMilkTable;
+window.promptReturnProduct = promptReturnProduct;
+window.annulReturn = annulReturn;
+window.annulSale = annulSale;
+window.reprintReceipt = reprintReceipt;
+window.renderSalesHistory = renderSalesHistory;
+window.setHistoryToday = setHistoryToday;
+window.sendWhatsAppReminder = sendWhatsAppReminder;
+window.editClient = editClient;
+window.deleteClient = deleteClient;
+window.removeClientPrice = removeClientPrice;
+window.exportCsv = exportCsv;
+window.exportBackup = exportBackup;
+window.importBackupFile = importBackupFile;
 window.onClientSelectChange = onClientSelectChange;
 window.renderMonthlyBalance = renderMonthlyBalance;
+
+// ===================== RECIBO / REIMPRESIÓN =====================
+function renderReceiptModal(d, isCopy = false) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+    const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? 'flex' : 'none'; };
+    const money = n => `$${(n || 0).toLocaleString('es-CO')}`;
+
+    set('receipt-company', d.company);
+    set('receipt-date', d.date + (isCopy ? ' (COPIA)' : ''));
+    set('receipt-client', d.client);
+    set('receipt-payment-method', d.paymentMethod);
+    document.getElementById('receipt-items-body').innerHTML = d.items.map(i =>
+        `<tr><td>${esc(i.name)} (${esc(i.desc)})</td><td class="text-right font-bold">${money(i.subtotal)}</td></tr>`).join('');
+    set('receipt-total', money(d.totalVenta));
+    set('receipt-received', money(d.dineroRecibido));
+    set('receipt-change', money(d.cambioReal));
+    set('receipt-debt', money(d.montoFiado));
+    set('receipt-abono', money(d.abonoADeudas));
+    const paidFull = d.dineroRecibido >= d.totalVenta;
+    show('receipt-change-row', paidFull);
+    show('receipt-debt-row', !paidFull);
+    show('receipt-abono-row', (d.abonoADeudas || 0) > 0);
+
+    const modal = document.getElementById('modal-receipt');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function reprintReceipt(saleId) {
+    const e = state.salesHistory.find(x => x.id === saleId);
+    if (!e || e.isAbono) return;
+    const total = e.totalVentaOriginal ?? e.total;
+    const received = e.received ?? e.total;
+    lastReceiptData = {
+        company: state.companyName.toUpperCase(),
+        date: e.date,
+        client: e.clientName,
+        paymentMethod: e.paymentMethod,
+        items: e.items.map(i => ({
+            name: i.name,
+            desc: i.saleType === 'kilos' ? `${i.kilos}kg / ${i.blocksEquivalent || 0}blq` : `${i.units} und`,
+            subtotal: i.saleType === 'kilos' ? i.price * i.kilos : i.price * i.units
+        })),
+        totalVenta: total,
+        dineroRecibido: received,
+        montoFiado: e.fiado ?? Math.max(0, total - received),
+        abonoADeudas: e.abonoADeudas || 0,
+        cambioReal: e.cambioReal ?? Math.max(0, received - total)
+    };
+    renderReceiptModal(lastReceiptData, true);
+}
+
+// ===================== ANULAR VENTAS / ABONOS =====================
+function refreshMoneyViews() {
+    renderProductsPOS(); renderInventoryTable(); renderSalesHistory();
+    renderClientAccountsTable(); renderMonthlyBalance(); renderCart();
+}
+
+function reverseDebtPayment(debt, amount) {
+    debt.paidAmount = Math.max(0, debt.paidAmount - amount);
+    debt.status = debt.paidAmount >= debt.totalAmount ? 'pagado' : 'pendiente';
+}
+
+function findDebtForAbono(entry) {
+    if (entry.debtId) return state.clientDebts.find(d => d.id === entry.debtId) || null;
+    // abonos antiguos (sin enlace): se busca por cliente y concepto
+    const label = (entry.items && entry.items[0] && entry.items[0].name) || '';
+    const matches = state.clientDebts.filter(d => d.clientName === entry.clientName
+        && label.includes(d.concept) && d.paidAmount >= entry.total);
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function annulSale(saleId) {
+    const entry = state.salesHistory.find(x => x.id === saleId);
+    if (!entry) return;
+
+    if (entry.isAbono) {
+        const debt = findDebtForAbono(entry);
+        const msg = `¿Anular este abono de $${entry.total.toLocaleString('es-CO')} de ${entry.clientName}?\n\n` +
+            (debt ? 'La factura vuelve a quedar con ese saldo pendiente y el dinero sale de la caja.'
+                  : '⚠️ No se encontró la factura original: se quita el dinero de la caja pero la deuda NO se ajusta sola.');
+        if (!confirm(msg)) return;
+        if (debt) reverseDebtPayment(debt, entry.total);
+        state.salesHistory = state.salesHistory.filter(x => x.id !== saleId);
+        saveData();
+        refreshMoneyViews();
+        return;
+    }
+
+    const group = entry.txId ? state.salesHistory.filter(x => x.txId === entry.txId) : [entry];
+    const abonos = group.filter(x => x.isAbono);
+    const debt = entry.txId ? state.clientDebts.find(d => d.txId === entry.txId) : null;
+
+    if (debt && debt.paidAmount > 0) {
+        alert("⚠️ Esta venta quedó fiada y ya tiene abonos posteriores. Anula primero esos abonos y luego esta venta.");
+        return;
+    }
+
+    const legacyNote = entry.txId ? '' :
+        '\n\n⚠️ Venta antigua: se devuelve el stock y se quita el dinero de caja. Si quedó algo fiado, bórralo en Cuentas por Cobrar.';
+    const detail = entry.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`).join(', ');
+    if (!confirm(`¿Anular la venta a ${entry.clientName}?\n${detail}\n\nSe devuelve el stock, se quita el dinero de la caja` +
+        (debt ? ', se elimina lo fiado' : '') + (abonos.length ? ' y se revierten los abonos a deudas viejas' : '') + '.' + legacyNote)) return;
+
+    entry.items.forEach(item => {
+        const p = state.products.find(x => x.id === item.id);
+        if (!p) return;
+        if (item.saleType === 'kilos') {
+            p.kilos = parseFloat(((p.kilos || 0) + (item.kilos || 0)).toFixed(2));
+            p.blocks = parseFloat(((p.blocks || 0) + (item.blocksEquivalent || 0)).toFixed(2));
+        } else {
+            p.stockUnits = (p.stockUnits || 0) + (item.units || 0);
+        }
+    });
+    abonos.forEach(a => {
+        const d = state.clientDebts.find(x => x.id === a.debtId);
+        if (d) reverseDebtPayment(d, a.total);
+    });
+    if (debt) state.clientDebts = state.clientDebts.filter(d => d.id !== debt.id);
+    const removeIds = new Set(group.map(x => x.id));
+    state.salesHistory = state.salesHistory.filter(x => !removeIds.has(x.id));
+    saveData();
+    refreshMoneyViews();
+}
+
+// ===================== HISTORIAL CON FILTRO POR FECHA =====================
+function setHistoryToday() {
+    const dateInput = document.getElementById('hist-date');
+    const allBox = document.getElementById('hist-all');
+    if (dateInput) dateInput.value = getLocalDateString();
+    if (allBox) allBox.checked = false;
+    renderSalesHistory();
+}
+
+// ===================== COBRAR POR WHATSAPP =====================
+function normalizePhoneCO(raw) {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (digits.length === 10 && digits.startsWith('3')) return '57' + digits;
+    return digits.length >= 11 ? digits : '';
+}
+
+function sendWhatsAppReminder(clientId) {
+    const client = state.clients.find(c => String(c.id) === String(clientId));
+    if (!client) return;
+    const phone = normalizePhoneCO(client.phone);
+    if (!phone) {
+        alert(`⚠️ ${client.name} no tiene un teléfono válido. Agrégalo en Ventas → Seleccionar comprador → Editar.`);
+        return;
+    }
+    const pending = state.clientDebts
+        .filter(d => String(d.clientId) === String(client.id) && d.totalAmount - d.paidAmount > 0)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const total = pending.reduce((acc, d) => acc + (d.totalAmount - d.paidAmount), 0);
+    if (total <= 0) { alert("Este comprador no tiene saldo pendiente."); return; }
+
+    const lines = pending.slice(0, 8).map(d =>
+        `• ${d.date} · ${String(d.concept).slice(0, 60)} → $${(d.totalAmount - d.paidAmount).toLocaleString('es-CO')}`);
+    if (pending.length > 8) lines.push(`• y ${pending.length - 8} factura(s) más`);
+    const msg = `Hola ${client.name}, te escribimos de ${state.companyName}.\n` +
+        `Tu saldo pendiente es de $${total.toLocaleString('es-CO')}:\n${lines.join('\n')}\n\n¡Gracias por tu compra!`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+// ===================== COPIA DE SEGURIDAD / EXPORTAR =====================
+function downloadFile(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function csvCell(v) {
+    if (typeof v === 'number') return String(v).replace('.', ',');
+    return `"${String(v ?? '').replace(/"/g, '""')}"`;
+}
+
+function describeSaleItems(sale) {
+    return (sale.items || []).map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`).join(' | ');
+}
+
+const EXPORT_KINDS = {
+    ventas: () => ({
+        name: 'ventas-y-abonos',
+        head: ['Fecha', 'Comprador', 'Tipo', 'Detalle', 'Método de pago', 'Dinero ingresado', 'Valor de la venta', 'Quedó fiado'],
+        rows: state.salesHistory.map(s => [toISODate(s.rawDate || s.date), s.clientName, s.isAbono ? 'Abono' : 'Venta',
+            s.isAbono ? s.items[0].name : describeSaleItems(s), s.paymentMethod, s.total, s.totalVentaOriginal ?? s.total, s.fiado ?? 0])
+    }),
+    deudas: () => ({
+        name: 'cuentas-por-cobrar',
+        head: ['Fecha', 'Comprador', 'Concepto', 'Valor', 'Abonado', 'Saldo', 'Estado'],
+        rows: state.clientDebts.map(d => [d.date, d.clientName, d.concept, d.totalAmount, d.paidAmount, Math.max(0, d.totalAmount - d.paidAmount), d.status])
+    }),
+    gastos: () => ({
+        name: 'gastos',
+        head: ['Fecha', 'Concepto', 'Valor'],
+        rows: state.expenses.map(e => [e.date, e.name, e.amount])
+    }),
+    leche: () => ({
+        name: 'acopio-de-leche',
+        head: ['Fecha', 'Proveedor', 'Litros', 'Precio por litro', 'Estado', 'Registrado por'],
+        rows: state.dailyMilkLogs.map(l => [l.date, l.providerName, l.liters, l.pricePerLiter, l.paid ? 'Liquidado' : 'Pendiente', l.registeredBy || ''])
+    }),
+    pagos: () => ({
+        name: 'pagos-a-proveedores',
+        head: ['Fecha', 'Proveedor', 'Litros', 'Precio por litro', 'Total pagado'],
+        rows: state.milkPayments.map(p => [p.date, p.providerName, p.liters, p.pricePerLiter, p.totalPaid])
+    }),
+    rendimientos: () => ({
+        name: 'rendimientos',
+        head: ['Fecha', 'Producto', 'Litros', 'Cantinas', 'Producción', 'Presentación', 'Promedio por cantina', 'Meta', 'Costo leche', 'Venta del lote', 'Ganancia del lote'],
+        rows: state.yieldLogs.map(y => [y.date, y.productName, y.liters, y.cantinasExactas, y.totalWeight, y.yieldType, y.promedioPorCantina, y.customTarget, y.milkCost, y.totalVentaLote, y.gananciaNetaLote])
+    }),
+    devoluciones: () => ({
+        name: 'devoluciones',
+        head: ['Fecha', 'Comprador', 'Producto', 'Cantidad', 'Precio', 'Total', 'Forma', 'Volvió al stock'],
+        rows: state.returnsLog.map(r => [r.date, r.clientName, r.productName, r.qty, r.price, r.total, r.mode === 'deuda' ? 'Descontado de deuda' : r.method, r.restock ? 'Sí' : 'No'])
+    }),
+    inventario: () => ({
+        name: 'inventario',
+        head: ['Producto', 'Tipo de venta', 'Precio base', 'Bloques', 'Kilos', 'Unidades'],
+        rows: state.products.map(p => [p.name, p.saleType, getBasePrice(p), p.blocks || 0, p.kilos || 0, p.stockUnits || 0])
+    }),
+    clientes: () => ({
+        name: 'compradores',
+        head: ['Nombre', 'Teléfono', 'Precios especiales'],
+        rows: state.clients.map(c => [c.name, c.phone || '', Object.keys(c.prices || {}).map(k => {
+            const p = state.products.find(x => 'p_' + x.id === k);
+            return p ? `${p.name}: ${c.prices[k]}` : '';
+        }).filter(Boolean).join(' | ')])
+    })
+};
+
+function exportCsv() {
+    const kind = document.getElementById('export-kind').value;
+    const build = EXPORT_KINDS[kind];
+    if (!build) return;
+    const { name, head, rows } = build();
+    const csv = '\uFEFF' + [head, ...rows].map(r => r.map(csvCell).join(';')).join('\r\n');
+    downloadFile(`${name}-${getLocalDateString()}.csv`, csv, 'text/csv;charset=utf-8');
+}
+
+function exportBackup() {
+    const data = {};
+    SYNC_KEYS.forEach(k => { data[k] = state[k]; });
+    const backup = { format: 'lacteos-backup', version: 1, exportedAt: new Date().toISOString(), owner: state.currentUserEmail, data };
+    downloadFile(`respaldo-lacteos-${getLocalDateString()}.json`, JSON.stringify(backup, null, 1), 'application/json');
+}
+
+function importBackupFile(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const backup = JSON.parse(reader.result);
+            if (backup.format !== 'lacteos-backup' || !backup.data) throw new Error('formato');
+            const arrays = SYNC_KEYS.filter(k => k !== 'companyName');
+            if (!arrays.every(k => backup.data[k] === undefined || Array.isArray(backup.data[k]))) throw new Error('datos');
+            if (!confirm(`¿Restaurar la copia del ${String(backup.exportedAt).slice(0, 10)}?\n\nEsto REEMPLAZA todos los datos actuales (ventas, stock, deudas, leche, etc.).`)) return;
+            arrays.forEach(k => { state[k] = backup.data[k] || []; });
+            if (backup.data.companyName) state.companyName = backup.data.companyName;
+            saveData();
+            refreshAllVisibleTables();
+            closeConfigModal();
+            alert("✅ Copia restaurada.");
+        } catch (err) {
+            alert("⚠️ Ese archivo no es una copia de seguridad válida de esta app.");
+        }
+    };
+    reader.readAsText(file);
+}
+
+
+// ===================== DEVOLUCIONES =====================
+function getPendingDebts(client) {
+    return state.clientDebts
+        .filter(d => String(d.clientId) === String(client.id) && d.status === 'pendiente' && d.totalAmount - d.paidAmount > 0)
+        .sort((a, b) => a.id - b.id);
+}
+
+function promptReturnProduct(productId) {
+    const product = state.products.find(p => p.id === productId);
+    if (!product) return;
+    const client = getSelectedClient();
+    if (!client) {
+        alert("⚠️ Primero selecciona el comprador (paso 1) que está devolviendo el producto.");
+        return;
+    }
+    const isKilos = product.saleType === 'kilos';
+    const unitName = isKilos ? 'kilos' : 'unidades';
+
+    const qtyInput = prompt(`↩ DEVOLUCIÓN de ${client.name}\n¿Cuántos ${unitName} de "${product.name}" devuelve?`, "1");
+    if (qtyInput === null) return;
+    const qty = parseNumericInput(qtyInput);
+    if (qty <= 0) { alert("⚠️ Cantidad no válida."); return; }
+
+    let blocks = 0;
+    if (isKilos) {
+        const bIn = prompt("¿Cuántos bloques físicos equivalentes devuelve?", "1");
+        blocks = bIn !== null ? parseNumericInput(bIn) : 0;
+    }
+
+    const priceIn = prompt(`Precio ${isKilos ? 'por kilo' : 'por unidad'} al que se le vendió a ${client.name}:`, getClientPrice(client, product));
+    if (priceIn === null) return;
+    const price = parseNumericInput(priceIn);
+    if (price <= 0) { alert("⚠️ El precio debe ser mayor a 0."); return; }
+    const total = Math.round(price * qty);
+
+    const restock = confirm(`¿El ${product.name} devuelto vuelve al stock para poder venderse?\n\nAceptar = vuelve al stock.\nCancelar = NO vuelve (dañado / se pierde).`);
+
+    const pendingDebts = getPendingDebts(client);
+    const pendingTotal = pendingDebts.reduce((acc, d) => acc + (d.totalAmount - d.paidAmount), 0);
+    const modeIn = prompt(`¿Cómo se le devuelve a ${client.name}? Total: $${total.toLocaleString('es-CO')}\n\n1 = Devolver dinero en Efectivo\n2 = Devolver dinero por Nequi\n3 = Descontar de lo que debe (debe $${pendingTotal.toLocaleString('es-CO')})`, "1");
+    if (modeIn === null) return;
+    const mode = String(modeIn).trim();
+    if (!['1', '2', '3'].includes(mode)) { alert("⚠️ Opción no válida. Escribe 1, 2 o 3."); return; }
+    if (mode === '3') {
+        if (pendingTotal <= 0) { alert(`⚠️ ${client.name} no tiene deudas pendientes. Elige devolver dinero.`); return; }
+        if (total > pendingTotal) { alert(`⚠️ La devolución ($${total.toLocaleString('es-CO')}) supera lo que debe ($${pendingTotal.toLocaleString('es-CO')}). Elige devolver dinero.`); return; }
+    }
+
+    const qtyText = isKilos ? `${qty}kg` : `${qty} und`;
+    const how = mode === '3' ? 'se descuenta de su deuda' : `sale $${total.toLocaleString('es-CO')} de la caja (${mode === '2' ? 'Nequi' : 'Efectivo'})`;
+    if (!confirm(`Confirmar devolución:\n${client.name} devuelve ${qtyText} de ${product.name}\nValor: $${total.toLocaleString('es-CO')} → ${how}\n${restock ? 'El producto vuelve al stock.' : 'El producto NO vuelve al stock.'}`)) return;
+
+    const returnId = Date.now();
+    const today = getLocalDateString();
+
+    if (restock) {
+        if (isKilos) {
+            product.kilos = parseFloat(((product.kilos || 0) + qty).toFixed(2));
+            product.blocks = parseFloat(((product.blocks || 0) + blocks).toFixed(2));
+        } else {
+            product.stockUnits = (product.stockUnits || 0) + qty;
+        }
+    }
+
+    const applications = [];
+    let method = null;
+    if (mode === '3') {
+        let left = total;
+        for (const debt of pendingDebts) {
+            if (left <= 0) break;
+            const apply = Math.min(left, debt.totalAmount - debt.paidAmount);
+            debt.paidAmount += apply;
+            if (debt.paidAmount >= debt.totalAmount) debt.status = 'pagado';
+            applications.push({ debtId: debt.id, amount: apply });
+            left -= apply;
+        }
+    } else {
+        method = mode === '2' ? 'Nequi' : 'Efectivo';
+        state.expenses.unshift({
+            id: returnId, returnId, date: today, method, amount: total,
+            name: `Devolución: ${qtyText} ${product.name} — ${client.name}`
+        });
+    }
+
+    state.returnsLog.unshift({
+        id: returnId, date: today, clientId: client.id, clientName: client.name,
+        productId: product.id, productName: product.name, saleType: product.saleType,
+        qty, blocks, price, total, restock, mode: mode === '3' ? 'deuda' : 'dinero', method, applications
+    });
+
+    saveData();
+    refreshMoneyViews();
+    renderExpensesTable();
+    renderReturnsList();
+}
+
+function renderReturnsList() {
+    const tbody = document.getElementById('returns-list');
+    if (!tbody) return;
+    const list = state.returnsLog.slice(0, 15);
+    if (list.length === 0) {
+        tbody.innerHTML = '<tr><td class="py-3 text-center text-slate-400">Aún no hay devoluciones.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = list.map(r => `
+        <tr class="border-b border-slate-100">
+            <td class="py-2 pr-2 font-mono text-slate-500 whitespace-nowrap">${esc(r.date)}</td>
+            <td class="py-2 pr-2 font-bold text-slate-800">${esc(r.clientName)}</td>
+            <td class="py-2 pr-2">${r.saleType === 'kilos' ? r.qty + ' kg' : r.qty + ' und'} ${esc(r.productName)}${r.restock ? '' : ' <span class="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold">No volvió al stock</span>'}</td>
+            <td class="py-2 pr-2 font-mono font-bold text-amber-800 whitespace-nowrap">$${r.total.toLocaleString('es-CO')}</td>
+            <td class="py-2 pr-2 text-slate-600">${r.mode === 'deuda' ? 'Descontado de deuda' : esc(r.method)}</td>
+            <td class="py-2 text-right"><button onclick="annulReturn(${r.id})" class="text-[11px] bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Anular</button></td>
+        </tr>`).join('');
+}
+
+function annulReturn(id) {
+    const r = state.returnsLog.find(x => x.id === id);
+    if (!r) return;
+    const product = state.products.find(p => p.id === r.productId);
+    if (r.restock && product) {
+        const have = r.saleType === 'kilos' ? (product.kilos || 0) : (product.stockUnits || 0);
+        if (have < r.qty) {
+            alert("⚠️ No se puede anular: ese producto ya se volvió a vender y no hay stock suficiente para deshacer el ingreso.");
+            return;
+        }
+    }
+    if (!confirm(`¿Anular la devolución de ${r.clientName} ($${r.total.toLocaleString('es-CO')})?\n\n` +
+        (r.mode === 'deuda' ? 'La deuda vuelve a quedar como estaba.' : 'El dinero vuelve a la caja (se quita el gasto).') +
+        (r.restock ? '\nEl producto sale otra vez del stock.' : ''))) return;
+
+    if (r.restock && product) {
+        if (r.saleType === 'kilos') {
+            product.kilos = parseFloat(Math.max(0, (product.kilos || 0) - r.qty).toFixed(2));
+            product.blocks = parseFloat(Math.max(0, (product.blocks || 0) - (r.blocks || 0)).toFixed(2));
+        } else {
+            product.stockUnits = Math.max(0, (product.stockUnits || 0) - r.qty);
+        }
+    }
+    if (r.mode === 'deuda') {
+        (r.applications || []).forEach(a => {
+            const d = state.clientDebts.find(x => x.id === a.debtId);
+            if (d) reverseDebtPayment(d, a.amount);
+        });
+    } else {
+        state.expenses = state.expenses.filter(e => e.returnId !== r.id);
+    }
+    state.returnsLog = state.returnsLog.filter(x => x.id !== id);
+    saveData();
+    refreshMoneyViews();
+    renderExpensesTable();
+    renderReturnsList();
+}

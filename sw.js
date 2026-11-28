@@ -1,7 +1,7 @@
 // Service Worker: red primero, caché como respaldo (la app abre aunque no haya internet;
 // Firebase sigue necesitando conexión para sincronizar datos).
-const CACHE_NAME = 'lacteos-shell-v6';
-const SHELL = ['./', './index.html', './styles.css', './app.js?v=6', './manifest.json', './icon.svg'];
+const CACHE_NAME = 'lacteos-shell-v7';
+const SHELL = ['./', './index.html', './styles.css', './app.js?v=7', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(
