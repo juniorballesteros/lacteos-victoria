@@ -85,7 +85,7 @@ let currentWorkspaceKey = null;
 let unsubscribeWorkspaceListener = null;
 
 const SYNC_KEYS = ['companyName', 'clients', 'products', 'productionLogs', 'salesHistory', 'expenses',
-    'milkProviders', 'dailyMilkLogs', 'milkPayments', 'yieldLogs', 'clientDebts', 'returnsLog'];
+    'milkProviders', 'dailyMilkLogs', 'milkPayments', 'yieldLogs', 'clientDebts', 'returnsLog', 'milkEditLog'];
 let lastSyncedJSON = {};
 
 // ---------- Sesión persistente: dura hasta la medianoche (hora local) ----------
@@ -157,6 +157,7 @@ function createEmptyAppState() {
         yieldLogs: [],
         clientDebts: [],
         returnsLog: [],
+        milkEditLog: [],
         cart: []
     };
 }
@@ -308,6 +309,7 @@ function subscribeToWorkspace(workspaceKey, accountRecord) {
             state.milkPayments = parsed.milkPayments || [];
             state.yieldLogs = parsed.yieldLogs || [];
             state.returnsLog = parsed.returnsLog || [];
+            state.milkEditLog = parsed.milkEditLog || [];
             state.clientDebts = (parsed.clientDebts || []).map(d => {
                 const iso = toISODate(d.date);
                 return iso && iso !== d.date ? { ...d, date: iso } : d;
@@ -1540,6 +1542,7 @@ function renderDailyMilkTable() {
               (isAdmin ? `<p class="text-xs text-slate-500 mt-2">💰 Lo que se les debe a todos los proveedores (litros sin pagar de todos los días): <b class="text-emerald-700">${money(totalPendingValue)}</b></p>` : '');
     }
 
+    renderMilkEditLog();
     tbody.innerHTML = '';
     if (dayLogs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-slate-400 font-medium">No hay entregas registradas este día.</td></tr>';
@@ -1570,6 +1573,11 @@ function deleteDailyMilk(id) {
         return;
     }
     if (confirm("¿Eliminar registro?")) {
+        state.milkEditLog.unshift({
+            id: Date.now(), at: new Date().toISOString(), type: 'eliminado', entregaDate: log.date,
+            providerId: log.providerId, providerName: log.providerName,
+            before: log.liters, after: 0, note: 'Registro eliminado', by: state.currentUserEmail || ''
+        });
         state.dailyMilkLogs = state.dailyMilkLogs.filter(l => l.id !== id);
         saveData();
         renderDailyMilkTable();
@@ -1596,9 +1604,14 @@ function editDailyMilk(id) {
         return;
     }
     if (liters === log.liters) return;
-    const note = prompt("Motivo del cambio (opcional). Ej: vendí 20 L por otro lado:", "");
+    const note = prompt("¿A quién se los diste o por qué cambias los litros?\nEj: se los vendí a Don Carlos.\n(Queda en el historial de cambios, abajo.)", "");
     if (note === null) return;
 
+    state.milkEditLog.unshift({
+        id: Date.now(), at: new Date().toISOString(), type: 'editado', entregaDate: log.date,
+        providerId: log.providerId, providerName: log.providerName,
+        before: log.liters, after: liters, note: note.trim(), by: state.currentUserEmail || ''
+    });
     if (log.originalLiters === undefined) log.originalLiters = log.liters;
     log.liters = liters;
     log.editNote = note.trim();
@@ -2343,6 +2356,7 @@ function renderProductsPOS() {
         return;
     }
 
+    renderClientDebtBanner();
     const client = getSelectedClient();
     state.products.forEach(p => {
         const isAvailable = p.saleType === 'kilos' ? p.kilos > 0 : p.stockUnits > 0;
@@ -2388,10 +2402,37 @@ function getClientPrice(client, product) {
     return special > 0 ? special : getBasePrice(product);
 }
 
+function cartLineAmount(i) {
+    const base = i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units);
+    return i.isReturn ? -base : base;
+}
+
+function describeItem(i) {
+    return (i.isReturn ? '↩ Devolución ' : '') + (i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`);
+}
+
+function signedMoney(n) {
+    return `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('es-CO')}`;
+}
+
+function renderClientDebtBanner() {
+    const box = document.getElementById('client-debt-banner');
+    if (!box) return;
+    const client = getSelectedClient();
+    const saldo = client ? state.clientDebts
+        .filter(d => String(d.clientId) === String(client.id))
+        .reduce((acc, d) => acc + Math.max(0, d.totalAmount - d.paidAmount), 0) : 0;
+    if (!client || saldo <= 0) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    box.innerHTML = `<span class="text-xs font-bold text-amber-900">⚠️ ${esc(client.name)} debe $${saldo.toLocaleString('es-CO')}</span>
+        <button type="button" onclick="sendWhatsAppReminder(${client.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg whitespace-nowrap">Cobrar por WhatsApp</button>`;
+    box.classList.remove('hidden');
+}
+
 function onClientSelectChange() {
     const client = getSelectedClient();
     // Si ya hay productos en el carrito, se recalculan con los precios del comprador elegido
     state.cart.forEach(item => {
+        if (item.isReturn) return;
         const product = state.products.find(p => p.id === item.id);
         if (product) item.price = getClientPrice(client, product);
     });
@@ -2410,7 +2451,7 @@ function promptSellProduct(productId) {
     }
 
     const isKilos = product.saleType === 'kilos';
-    const inCart = state.cart.filter(i => i.id === product.id)
+    const inCart = state.cart.filter(i => i.id === product.id && !i.isReturn)
         .reduce((acc, i) => acc + (isKilos ? i.kilos : i.units), 0);
     const available = (isKilos ? product.kilos : product.stockUnits) - inCart;
     const unitName = isKilos ? 'kilos' : 'unidades';
@@ -2471,15 +2512,15 @@ function renderCart() {
     cartContainer.innerHTML = '';
     let total = 0;
     state.cart.forEach((item, index) => {
-        let itemTotal = item.saleType === 'kilos' ? (item.price * item.kilos) : (item.price * item.units);
+        let itemTotal = cartLineAmount(item);
         total += itemTotal;
         let desc = item.saleType === 'kilos' ? `${item.kilos}kg (${item.blocksEquivalent || 0} blq)` : `${item.units} und`;
 
         cartContainer.innerHTML += `
-            <div class="flex items-center justify-between bg-emerald-900/60 p-2.5 rounded-xl text-xs border border-emerald-800 text-white gap-2">
+            <div class="flex items-center justify-between ${item.isReturn ? 'bg-amber-900/40 border-amber-600' : 'bg-emerald-900/60 border-emerald-800'} p-2.5 rounded-xl text-xs border text-white gap-2">
                 <div class="flex-1">
-                    <p class="font-bold">${esc(item.name)}</p>
-                    <p class="text-emerald-300">${desc} — <span class="font-mono font-bold">$${itemTotal.toLocaleString('es-CO')}</span></p>
+                    <p class="font-bold">${item.isReturn ? '↩ Devolución: ' : ''}${esc(item.name)}</p>
+                    <p class="${item.isReturn ? 'text-amber-300' : 'text-emerald-300'}">${desc} — <span class="font-mono font-bold">${signedMoney(itemTotal)}</span></p>
                 </div>
                 <button onclick="removeFromCart(${index})" class="text-red-400 hover:text-red-300 bg-emerald-950/80 p-1.5 rounded-lg transition-colors" title="Eliminar producto">
                     <i data-lucide="trash-2" class="w-4 h-4"></i>
@@ -2487,7 +2528,7 @@ function renderCart() {
             </div>`;
     });
 
-    document.getElementById('cart-total').innerText = `$${total.toLocaleString('es-CO')}`;
+    document.getElementById('cart-total').innerText = signedMoney(total);
     calculateChange();
     if (window.lucide) lucide.createIcons();
 }
@@ -2498,7 +2539,7 @@ function removeFromCart(index) {
 }
 
 function calculateChange() {
-    const total = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
+    const total = state.cart.reduce((acc, i) => acc + cartLineAmount(i), 0);
     const received = parseFloat(document.getElementById('received-amount').value) || 0;
     const diff = received - total;
 
@@ -2541,12 +2582,17 @@ function processSaleAndPrint() {
 
     const client = state.clients.find(c => c.id == clientId);
     const paymentMethod = document.getElementById('payment-method').value;
-    const totalVenta = state.cart.reduce((acc, i) => acc + (i.saleType === 'kilos' ? (i.price * i.kilos) : (i.price * i.units)), 0);
+    const totalVenta = state.cart.reduce((acc, i) => acc + cartLineAmount(i), 0);
+    if (totalVenta < 0) {
+        alert("⚠️ Las devoluciones ($" + Math.abs(totalVenta).toLocaleString('es-CO') + " de más) superan el valor de la venta. Agrega el queso que se le entrega o quita una devolución.");
+        return;
+    }
     const dineroRecibido = parseFloat(document.getElementById('received-amount').value) || 0;
 
     // Validar stock total por producto (el mismo producto puede estar en varias líneas)
     const needed = {};
     state.cart.forEach(i => {
+        if (i.isReturn) return;
         needed[i.id] = needed[i.id] || { kilos: 0, units: 0 };
         needed[i.id].kilos += i.kilos || 0;
         needed[i.id].units += i.units || 0;
@@ -2562,6 +2608,7 @@ function processSaleAndPrint() {
     }
 
     state.cart.forEach(item => {
+        if (item.isReturn) return; // el queso devuelto está dañado: nunca vuelve al stock
         const product = state.products.find(p => p.id === item.id);
         if (product) {
             if (product.saleType === 'kilos') {
@@ -2585,9 +2632,7 @@ function processSaleAndPrint() {
         montoFiado = totalVenta - dineroRecibido;
         dineroEntraCaja = dineroRecibido;
 
-        const itemsSummary = state.cart.map(i => i.saleType === 'kilos'
-            ? `${i.kilos}kg ${i.name}`
-            : `${i.units} und ${i.name}`).join(', ');
+        const itemsSummary = state.cart.map(describeItem).join(', ');
 
         state.clientDebts.push({
             id: txId,
@@ -2658,6 +2703,16 @@ function processSaleAndPrint() {
         });
     });
 
+    // Las devoluciones quedan registradas (ya descontadas en esta factura)
+    state.cart.filter(i => i.isReturn).forEach((i, n) => {
+        const qty = i.saleType === 'kilos' ? i.kilos : i.units;
+        state.returnsLog.unshift({
+            id: txId + 1000 + n, txId, date: hoyISO, clientId: client.id, clientName: client.name,
+            productId: i.id, productName: i.name, saleType: i.saleType, qty, blocks: i.blocksEquivalent || 0,
+            price: i.price, total: Math.round(i.price * qty), restock: false, mode: 'cruce', method: null, applications: []
+        });
+    });
+
     saveData();
 
     const fechaActual = new Date().toLocaleString('es-CO');
@@ -2667,9 +2722,9 @@ function processSaleAndPrint() {
         client: client.name,
         paymentMethod,
         items: state.cart.map(item => ({
-            name: item.name,
+            name: (item.isReturn ? '↩ Devolución: ' : '') + item.name,
             desc: item.saleType === 'kilos' ? `${item.kilos}kg / ${item.blocksEquivalent || 0}blq` : `${item.units} und`,
-            subtotal: item.saleType === 'kilos' ? item.price * item.kilos : item.price * item.units
+            subtotal: cartLineAmount(item)
         })),
         totalVenta,
         dineroRecibido,
@@ -2731,7 +2786,7 @@ function renderSalesHistory() {
         visible.forEach(sale => {
             const itemsDesc = sale.isAbono
                 ? `<span class="font-bold text-amber-800">${esc(sale.items[0].name)}</span>`
-                : sale.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg de ${esc(i.name)}` : `${i.units} und de ${esc(i.name)}`).join(' | ');
+                : sale.items.map(i => (i.isReturn ? '↩ Devolución ' : '') + (i.saleType === 'kilos' ? `${i.kilos}kg de ${esc(i.name)}` : `${i.units} und de ${esc(i.name)}`)).join(' | ');
             const fiadoBadge = sale.fiado > 0
                 ? `<br><span class="text-[10px] font-sans font-bold text-amber-700">Fiado $${sale.fiado.toLocaleString('es-CO')}</span>` : '';
             const receiptBtn = sale.isAbono ? '' :
@@ -2884,7 +2939,7 @@ function triggerPrint() {
 
         lastReceiptData.items.forEach(it => {
             ticket += `${it.name} (${it.desc})\n`;
-            ticket += `                  $${it.subtotal.toLocaleString('es-CO')}\n`;
+            ticket += `                  ${signedMoney(it.subtotal)}\n`;
         });
 
         ticket += `${line}\n`;
@@ -3055,6 +3110,7 @@ window.promptPaySpecificDebt = promptPaySpecificDebt;
 window.deleteDebtRecord = deleteDebtRecord;
 window.renderMilkPaymentsTable = renderMilkPaymentsTable;
 window.deleteMilkPayment = deleteMilkPayment;
+window.renderMilkEditLog = renderMilkEditLog;
 window.editDailyMilk = editDailyMilk;
 window.setMilkViewToday = setMilkViewToday;
 window.renderDailyMilkTable = renderDailyMilkTable;
@@ -3085,7 +3141,7 @@ function renderReceiptModal(d, isCopy = false) {
     set('receipt-client', d.client);
     set('receipt-payment-method', d.paymentMethod);
     document.getElementById('receipt-items-body').innerHTML = d.items.map(i =>
-        `<tr><td>${esc(i.name)} (${esc(i.desc)})</td><td class="text-right font-bold">${money(i.subtotal)}</td></tr>`).join('');
+        `<tr><td>${esc(i.name)} (${esc(i.desc)})</td><td class="text-right font-bold">${signedMoney(i.subtotal)}</td></tr>`).join('');
     set('receipt-total', money(d.totalVenta));
     set('receipt-received', money(d.dineroRecibido));
     set('receipt-change', money(d.cambioReal));
@@ -3112,9 +3168,9 @@ function reprintReceipt(saleId) {
         client: e.clientName,
         paymentMethod: e.paymentMethod,
         items: e.items.map(i => ({
-            name: i.name,
+            name: (i.isReturn ? '↩ Devolución: ' : '') + i.name,
             desc: i.saleType === 'kilos' ? `${i.kilos}kg / ${i.blocksEquivalent || 0}blq` : `${i.units} und`,
-            subtotal: i.saleType === 'kilos' ? i.price * i.kilos : i.price * i.units
+            subtotal: cartLineAmount(i)
         })),
         totalVenta: total,
         dineroRecibido: received,
@@ -3173,11 +3229,12 @@ function annulSale(saleId) {
 
     const legacyNote = entry.txId ? '' :
         '\n\n⚠️ Venta antigua: se devuelve el stock y se quita el dinero de caja. Si quedó algo fiado, bórralo en Cuentas por Cobrar.';
-    const detail = entry.items.map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`).join(', ');
+    const detail = entry.items.map(describeItem).join(', ');
     if (!confirm(`¿Anular la venta a ${entry.clientName}?\n${detail}\n\nSe devuelve el stock, se quita el dinero de la caja` +
         (debt ? ', se elimina lo fiado' : '') + (abonos.length ? ' y se revierten los abonos a deudas viejas' : '') + '.' + legacyNote)) return;
 
     entry.items.forEach(item => {
+        if (item.isReturn) return; // lo devuelto nunca entró al stock
         const p = state.products.find(x => x.id === item.id);
         if (!p) return;
         if (item.saleType === 'kilos') {
@@ -3192,6 +3249,7 @@ function annulSale(saleId) {
         if (d) reverseDebtPayment(d, a.total);
     });
     if (debt) state.clientDebts = state.clientDebts.filter(d => d.id !== debt.id);
+    if (entry.txId) state.returnsLog = state.returnsLog.filter(r => r.txId !== entry.txId);
     const removeIds = new Set(group.map(x => x.id));
     state.salesHistory = state.salesHistory.filter(x => !removeIds.has(x.id));
     saveData();
@@ -3255,7 +3313,7 @@ function csvCell(v) {
 }
 
 function describeSaleItems(sale) {
-    return (sale.items || []).map(i => i.saleType === 'kilos' ? `${i.kilos}kg ${i.name}` : `${i.units} und ${i.name}`).join(' | ');
+    return (sale.items || []).map(describeItem).join(' | ');
 }
 
 const EXPORT_KINDS = {
@@ -3290,10 +3348,15 @@ const EXPORT_KINDS = {
         head: ['Fecha', 'Producto', 'Litros', 'Cantinas', 'Producción', 'Presentación', 'Promedio por cantina', 'Meta', 'Costo leche', 'Venta del lote', 'Ganancia del lote'],
         rows: state.yieldLogs.map(y => [y.date, y.productName, y.liters, y.cantinasExactas, y.totalWeight, y.yieldType, y.promedioPorCantina, y.customTarget, y.milkCost, y.totalVentaLote, y.gananciaNetaLote])
     }),
+    cambiosleche: () => ({
+        name: 'cambios-en-litros',
+        head: ['Fecha del cambio', 'Entrega del día', 'Proveedor', 'Tipo', 'Litros antes', 'Litros después', 'A quién / motivo', 'Hecho por'],
+        rows: state.milkEditLog.map(e => [String(e.at).slice(0, 10), e.entregaDate, e.providerName, e.type, e.before, e.after, e.note || '', e.by || ''])
+    }),
     devoluciones: () => ({
         name: 'devoluciones',
         head: ['Fecha', 'Comprador', 'Producto', 'Cantidad', 'Precio', 'Total', 'Forma', 'Volvió al stock'],
-        rows: state.returnsLog.map(r => [r.date, r.clientName, r.productName, r.qty, r.price, r.total, r.mode === 'deuda' ? 'Descontado de deuda' : r.method, r.restock ? 'Sí' : 'No'])
+        rows: state.returnsLog.map(r => [r.date, r.clientName, r.productName, r.qty, r.price, r.total, r.mode === 'cruce' ? 'Descontado en la factura' : (r.mode === 'deuda' ? 'Descontado de deuda' : r.method), r.restock ? 'Sí' : 'No'])
     }),
     inventario: () => ({
         name: 'inventario',
@@ -3385,67 +3448,13 @@ function promptReturnProduct(productId) {
     if (priceIn === null) return;
     const price = parseNumericInput(priceIn);
     if (price <= 0) { alert("⚠️ El precio debe ser mayor a 0."); return; }
-    const total = Math.round(price * qty);
 
-    const restock = confirm(`¿El ${product.name} devuelto vuelve al stock para poder venderse?\n\nAceptar = vuelve al stock.\nCancelar = NO vuelve (dañado / se pierde).`);
-
-    const pendingDebts = getPendingDebts(client);
-    const pendingTotal = pendingDebts.reduce((acc, d) => acc + (d.totalAmount - d.paidAmount), 0);
-    const modeIn = prompt(`¿Cómo se le devuelve a ${client.name}? Total: $${total.toLocaleString('es-CO')}\n\n1 = Devolver dinero en Efectivo\n2 = Devolver dinero por Nequi\n3 = Descontar de lo que debe (debe $${pendingTotal.toLocaleString('es-CO')})`, "1");
-    if (modeIn === null) return;
-    const mode = String(modeIn).trim();
-    if (!['1', '2', '3'].includes(mode)) { alert("⚠️ Opción no válida. Escribe 1, 2 o 3."); return; }
-    if (mode === '3') {
-        if (pendingTotal <= 0) { alert(`⚠️ ${client.name} no tiene deudas pendientes. Elige devolver dinero.`); return; }
-        if (total > pendingTotal) { alert(`⚠️ La devolución ($${total.toLocaleString('es-CO')}) supera lo que debe ($${pendingTotal.toLocaleString('es-CO')}). Elige devolver dinero.`); return; }
-    }
-
-    const qtyText = isKilos ? `${qty}kg` : `${qty} und`;
-    const how = mode === '3' ? 'se descuenta de su deuda' : `sale $${total.toLocaleString('es-CO')} de la caja (${mode === '2' ? 'Nequi' : 'Efectivo'})`;
-    if (!confirm(`Confirmar devolución:\n${client.name} devuelve ${qtyText} de ${product.name}\nValor: $${total.toLocaleString('es-CO')} → ${how}\n${restock ? 'El producto vuelve al stock.' : 'El producto NO vuelve al stock.'}`)) return;
-
-    const returnId = Date.now();
-    const today = getLocalDateString();
-
-    if (restock) {
-        if (isKilos) {
-            product.kilos = parseFloat(((product.kilos || 0) + qty).toFixed(2));
-            product.blocks = parseFloat(((product.blocks || 0) + blocks).toFixed(2));
-        } else {
-            product.stockUnits = (product.stockUnits || 0) + qty;
-        }
-    }
-
-    const applications = [];
-    let method = null;
-    if (mode === '3') {
-        let left = total;
-        for (const debt of pendingDebts) {
-            if (left <= 0) break;
-            const apply = Math.min(left, debt.totalAmount - debt.paidAmount);
-            debt.paidAmount += apply;
-            if (debt.paidAmount >= debt.totalAmount) debt.status = 'pagado';
-            applications.push({ debtId: debt.id, amount: apply });
-            left -= apply;
-        }
-    } else {
-        method = mode === '2' ? 'Nequi' : 'Efectivo';
-        state.expenses.unshift({
-            id: returnId, returnId, date: today, method, amount: total,
-            name: `Devolución: ${qtyText} ${product.name} — ${client.name}`
-        });
-    }
-
-    state.returnsLog.unshift({
-        id: returnId, date: today, clientId: client.id, clientName: client.name,
-        productId: product.id, productName: product.name, saleType: product.saleType,
-        qty, blocks, price, total, restock, mode: mode === '3' ? 'deuda' : 'dinero', method, applications
+    // Queda como una línea que RESTA del total de la factura. No toca el stock: el queso devuelto está dañado.
+    state.cart.push({
+        id: product.id, name: product.name, saleType: product.saleType, price, basePrice: getBasePrice(product),
+        kilos: isKilos ? qty : 0, blocksEquivalent: blocks, units: isKilos ? 0 : qty, isReturn: true
     });
-
-    saveData();
-    refreshMoneyViews();
-    renderExpensesTable();
-    renderReturnsList();
+    renderCart();
 }
 
 function renderReturnsList() {
@@ -3462,8 +3471,8 @@ function renderReturnsList() {
             <td class="py-2 pr-2 font-bold text-slate-800">${esc(r.clientName)}</td>
             <td class="py-2 pr-2">${r.saleType === 'kilos' ? r.qty + ' kg' : r.qty + ' und'} ${esc(r.productName)}${r.restock ? '' : ' <span class="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold">No volvió al stock</span>'}</td>
             <td class="py-2 pr-2 font-mono font-bold text-amber-800 whitespace-nowrap">$${r.total.toLocaleString('es-CO')}</td>
-            <td class="py-2 pr-2 text-slate-600">${r.mode === 'deuda' ? 'Descontado de deuda' : esc(r.method)}</td>
-            <td class="py-2 text-right"><button onclick="annulReturn(${r.id})" class="text-[11px] bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Anular</button></td>
+            <td class="py-2 pr-2 text-slate-600">${r.mode === 'cruce' ? 'Descontado en la factura' : (r.mode === 'deuda' ? 'Descontado de deuda' : esc(r.method))}</td>
+            <td class="py-2 text-right">${r.mode === 'cruce' ? '<span class="text-[10px] text-slate-400">Va en la venta</span>' : `<button onclick="annulReturn(${r.id})" class="text-[11px] bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2 py-1 rounded-lg">Anular</button>`}</td>
         </tr>`).join('');
 }
 
@@ -3503,4 +3512,35 @@ function annulReturn(id) {
     refreshMoneyViews();
     renderExpensesTable();
     renderReturnsList();
+}
+
+
+// ===================== HISTORIAL DE CAMBIOS DE LITROS =====================
+function renderMilkEditLog() {
+    const box = document.getElementById('milk-edit-log-box');
+    const tbody = document.getElementById('milk-edit-log-body');
+    if (!box || !tbody) return;
+    if (state.currentUserRole === 'conductor') { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+
+    const allBox = document.getElementById('milk-log-all');
+    const showAll = !!(allBox && allBox.checked);
+    const day = getMilkViewDate();
+    const list = state.milkEditLog.filter(e => showAll || toISODate(e.entregaDate) === day);
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-slate-400">${showAll ? 'Aún no has hecho cambios.' : 'No hay cambios en las entregas de este día.'}</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = list.map(e => {
+        const diff = e.after - e.before;
+        const sign = diff > 0 ? '+' : '';
+        return `<tr class="border-b border-slate-100 align-top">
+            <td class="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">${esc(new Date(e.at).toLocaleString('es-CO'))}</td>
+            <td class="py-2 px-3 font-bold text-slate-800">${esc(e.providerName)}<br><span class="font-normal text-slate-400">entrega del ${esc(e.entregaDate)}</span></td>
+            <td class="py-2 px-3 font-mono whitespace-nowrap">${e.type === 'eliminado' ? '<span class="text-red-700 font-bold">Eliminado</span> ' + e.before + ' L' : e.before + ' → <b>' + e.after + ' L</b> <span class="' + (diff < 0 ? 'text-red-600' : 'text-emerald-700') + ' font-bold">(' + sign + diff + ' L)</span>'}</td>
+            <td class="py-2 px-3 text-slate-700">${esc(e.note || 'Sin nota')}</td>
+            <td class="py-2 px-3 text-slate-400">${esc(e.by)}</td>
+        </tr>`;
+    }).join('');
 }

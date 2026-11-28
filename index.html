@@ -328,6 +328,7 @@
                                 <button type="button" onclick="editClient()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg">Editar comprador / precios</button>
                                 <button type="button" onclick="deleteClient()" class="text-xs bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg">Eliminar</button>
                             </div>
+                            <div id="client-debt-banner" class="hidden mt-3 flex flex-wrap items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2"></div>
                         </div>
 
                         <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
@@ -335,6 +336,7 @@
                                 <i data-lucide="layout-grid" class="w-5 h-5 text-emerald-600"></i>
                                 <span>2. Catálogo Disponible (Vender / Devolución)</span>
                             </h3>
+                            <p class="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">↩ <b>Devolución</b>: se agrega a la factura y se <b>descuenta del total</b>. El queso devuelto está dañado y no vuelve al stock; el queso que le entregas de reemplazo sí sale del stock al venderlo.</p>
                             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" id="product-grid"></div>
                             <div class="mt-5 pt-4 border-t border-slate-200">
                                 <h4 class="text-xs font-bold text-amber-800 uppercase mb-2">↩ Devoluciones registradas</h4>
@@ -708,6 +710,25 @@
                                     <tbody id="daily-milk-table-body"></tbody>
                                 </table>
                             </div>
+
+                            <div id="milk-edit-log-box" class="mt-6 pt-4 border-t border-slate-200">
+                                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                    <h4 class="text-xs font-bold text-amber-800 uppercase">📝 Historial de cambios de litros</h4>
+                                    <label class="flex items-center gap-2 text-xs font-bold text-slate-600"><input type="checkbox" id="milk-log-all" onchange="renderMilkEditLog()"> Ver todos los días</label>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left text-xs">
+                                        <thead><tr class="bg-amber-50 text-amber-900 border-b border-amber-100">
+                                            <th class="py-2 px-3 font-bold">Cuándo se cambió</th>
+                                            <th class="py-2 px-3 font-bold">Proveedor</th>
+                                            <th class="py-2 px-3 font-bold">Cambio</th>
+                                            <th class="py-2 px-3 font-bold">A quién / motivo</th>
+                                            <th class="py-2 px-3 font-bold">Hecho por</th>
+                                        </tr></thead>
+                                        <tbody id="milk-edit-log-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1044,6 +1065,7 @@
                         <option value="pagos">Pagos a proveedores</option>
                         <option value="rendimientos">Rendimientos</option>
                         <option value="devoluciones">Devoluciones</option>
+                        <option value="cambiosleche">Cambios en litros (leche)</option>
                         <option value="inventario">Inventario</option>
                         <option value="clientes">Compradores</option>
                     </select>
